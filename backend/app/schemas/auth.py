@@ -53,7 +53,6 @@ class ChangePasswordRequest(BaseModel):
 class UserPayload(BaseModel):
     user_id: str
     username: str
-    role: str
     created_at: str | None = None
     last_login_at: str | None = None
 
@@ -61,7 +60,6 @@ class UserPayload(BaseModel):
 class TokenPayload(BaseModel):
     user_id: str
     username: str
-    role: str
     access_token: str
     refresh_token: str
     token_type: str = "bearer"

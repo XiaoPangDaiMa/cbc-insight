@@ -108,13 +108,28 @@ def box_chart(
     for line in unit_log or []:
         if line.startswith(metric):
             note = "；" + line
+    # 数据集无性别、且用户显式声明按统一区间判定（FR-16）：图上与文案都必须说明，
+    # 不能沿用"按性别各自参考区间"的句式，否则读到的人会以为系统知道性别
+    unified = "ri_source" in long.columns and bool((long["ri_source"] == "unified").any())
+    unified_bands = None
+    if unified and gender_dependent:
+        # 注意不能用 ranges.interval(metric)：它等价于 resolve(metric, None)，
+        # 在 BR-17 下会返回 None。统一区间就是配置里的 default。
+        effective = ranges.default.get(metric)
+        if effective is not None:
+            unified_bands = (effective.low, effective.high)
     caption = caption_box(
         metric_cn=name_cn,
         unit=unit,
-        groups={"male": groups.get("male", {}), "female": groups.get("female", {})} if has_gender else {},
+        groups=(
+            {"male": groups.get("male", {}), "female": groups.get("female", {})}
+            if has_gender
+            else {"all": groups.get("all", {})}
+        ),
         comparison=comparison,
         decimals=decimals,
         unit_note=note,
+        unified_bands=unified_bands,
     )
 
     option: dict[str, Any] = {
@@ -243,17 +258,30 @@ def hist_chart(
             f"{'男' if b['gender'] == 'male' else '女'} {fmt(b['low'], decimals)}–{fmt(b['high'], decimals)}"
             for b in bands
         )
+    # 无性别 + 统一区间：文案改口径，不再说"按性别各自判定"（FR-16）
+    unified = "ri_source" in long.columns and bool((long["ri_source"] == "unified").any())
+    # 统一区间 = 配置里的 default（不能用 ranges.interval(metric)，那等价于性别未知 → None）
+    effective = ranges.default.get(metric) if ranges is not None else None
     caption = caption_hist(
         metric_cn=name_cn,
         unit=unit,
         n=total,
         median=float(values.median()) if total else None,
-        low=bands[0]["low"] if bands and not gender_dependent else None,
-        high=bands[0]["high"] if bands and not gender_dependent else None,
+        low=(
+            effective.low
+            if unified and effective is not None
+            else (bands[0]["low"] if bands and not gender_dependent else None)
+        ),
+        high=(
+            effective.high
+            if unified and effective is not None
+            else (bands[0]["high"] if bands and not gender_dependent else None)
+        ),
         pct_normal=pct_normal,
         decimals=decimals,
         unit_note=note,
         bands_text=bands_text,
+        unified=unified and gender_dependent,
     )
 
     option: dict[str, Any] = {
@@ -321,6 +349,22 @@ def _first_number(label: str) -> float:
         return 0.0
 
 
+def _short_label(metric: str) -> str:
+    """热力图轴标签用短代码（HGB / NEUT%），中文全名留给 tooltip 与导出。
+
+    长中文名（"平均红细胞血红蛋白浓度"）在 N×N 的方格里无论怎么转都挤，
+    而指标代码本身是这行的通用语言，短名反而更可读（4.4.5 的图注里已有全名）。
+    """
+    known = {
+        "neut_pct": "NEUT%",
+        "lymph_pct": "LYMPH%",
+        "mono_pct": "MONO%",
+        "eo_pct": "EO%",
+        "baso_pct": "BASO%",
+    }
+    return known.get(metric, metric.upper())
+
+
 def corr_chart(
     frame: pd.DataFrame,
     fields: FieldDictionary,
@@ -328,28 +372,81 @@ def corr_chart(
     *,
     settings: Settings | None = None,
 ) -> dict[str, Any]:
-    """FR-11 相关性热力图：Spearman，标出数学耦合的指标对（BR-12）。"""
+    """FR-11 相关性热力图：Spearman，标出数学耦合的指标对（BR-12）。
+
+    呈现要点（v1.6 修补）：**方格子** + 短标签 + 格内写 ρ。
+    格子宽扁是因为 grid 用了固定的 left/right/bottom 像素而容器变宽——宽度涨、高度不涨，
+    方格子因此被拉成扁格子。这里改成"先按指标个数算格子边长，再由边长反推正方形绘制区"，
+    容器变宽时整体居中，格子永远是正方形。
+    """
     settings = settings or get_settings()
     metrics: list[str] = list(stats_payload.get("metrics") or [])
     matrix: dict[str, dict[str, float | None]] = stats_payload.get("matrix") or {}
     pairs: list[dict] = stats_payload.get("pairs") or []
+    short = [_short_label(m) for m in metrics]
     names = [_meta(fields, m)[0] for m in metrics]
 
-    data: list[list[Any]] = []
+    count = max(len(metrics), 1)
+    cell_px = max(22, min(44, 420 // count))  # 指标多则缩小格子，绘制区不超过 420 px
+    plot_px = cell_px * count
+    label_px = 11 if cell_px >= 34 else (9 if cell_px >= 26 else 8)
+
+    data: list[dict[str, Any]] = []
     for i, a in enumerate(metrics):
         for j, b in enumerate(metrics):
             value = (matrix.get(a) or {}).get(b)
-            if value is not None:
-                data.append([j, i, round(float(value), 3)])
+            if value is None:
+                continue
+            rho = round(float(value), 2)
+            item: dict[str, Any] = {"value": [j, i, rho]}
+            # 对角线恒为 1，写出来只是噪声；空格子代表"该指标无数据"，两者要能区分
+            item["label"] = {"show": False} if a == b else {"formatter": f"{rho:.2f}"}
+            data.append(item)
 
     option: dict[str, Any] = {
-        "title": {"text": "指标相关性（Spearman）"},
+        "title": {
+            "text": "指标相关性（Spearman）",
+            "subtext": "格内为 ρ；对角线恒为 1，已隐去；空白格表示该指标无数据",
+            "subtextStyle": {"fontSize": 11},
+        },
         "tooltip": {"position": "top"},
-        "grid": {"left": 110, "right": 24, "top": 64, "bottom": 110},
-        "xAxis": {"type": "category", "data": names, "axisLabel": {"rotate": 40}},
-        "yAxis": {"type": "category", "data": names},
-        "visualMap": {"min": -1, "max": 1, "calculable": True, "orient": "horizontal", "left": "center", "bottom": 0},
-        "series": [{"name": "rho", "type": "heatmap", "data": data}],
+        "grid": {"left": "center", "top": 64, "width": plot_px, "height": plot_px, "containLabel": False},
+        "xAxis": {
+            "type": "category",
+            "data": short,
+            "splitArea": {"show": False},
+            "axisTick": {"show": False},
+            "axisLabel": {"interval": 0, "fontSize": 11, "rotate": 0},
+        },
+        "yAxis": {
+            "type": "category",
+            "data": short,
+            "inverse": True,
+            "splitArea": {"show": False},
+            "axisTick": {"show": False},
+            "axisLabel": {"interval": 0, "fontSize": 11},
+        },
+        "visualMap": {
+            "min": -1,
+            "max": 1,
+            "precision": 1,
+            "calculable": True,
+            "orient": "horizontal",
+            "left": "center",
+            "bottom": 0,
+        },
+        "series": [
+            {
+                "name": "rho",
+                "type": "heatmap",
+                "data": data,
+                "label": {"show": True, "fontSize": label_px},
+                # borderColor 用 "transparent" 关键字而不是具体色值：缝隙透出卡片底色，
+                # 既实现"白描边"的观感，又不让后端产出字面色值（NFR-M-07）
+                "itemStyle": {"borderWidth": 2, "borderColor": "transparent"},
+                "emphasis": {"itemStyle": {"borderWidth": 2, "borderColor": "transparent"}},
+            }
+        ],
     }
 
     # 取耦合与最强非耦合各一条做图注（BR-12）
@@ -384,6 +481,9 @@ def corr_chart(
         "supporting": {
             "method": stats_payload.get("method", "spearman"),
             "metrics": metrics,
+            "labels": dict(zip(metrics, short, strict=False)),
+            "full_names": dict(zip(metrics, names, strict=False)),
+            "cell_px": cell_px,
             "notes": stats_payload.get("notes", []),
             "coupled_pairs": [p for p in pairs if p.get("coupling")],
         },

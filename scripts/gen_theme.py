@@ -1,9 +1,11 @@
-"""把 ``frontend/src/theme/tokens.json`` 展开成三端产物（NFR-M-07 单一配色来源，T-32）。
+"""把 ``frontend/src/theme/tokens.json`` 展开成四端产物（NFR-M-07 单一配色来源，T-32）。
 
-三个下游：
+四个下游：
 1. ``frontend/src/theme/tokens.generated.css``  —— CSS 自定义属性，界面唯一的取色入口；
 2. ``frontend/src/theme/echarts.generated.json`` —— ECharts 主题（系列色 + 基础字号）；
-3. ``backend/resources/cbc.mplstyle``           —— matplotlib rcParams，供服务端报告出图。
+3. ``backend/resources/cbc.mplstyle``           —— matplotlib rcParams，供服务端报告出图；
+4. ``backend/resources/theme.json``             —— 服务端渲染器（报告 HTML / matplotlib）读的
+   原始 token，避免在 Python 里写死十六进制色值（RK-22）。
 
 改配色只改 ``tokens.json`` 再跑一次本脚本；**不要在组件里写字面十六进制色值**，
 否则屏幕图与报告图的颜色会各自漂移（RK-22、RK-23）。
@@ -21,6 +23,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+
 # 项目根 = 同时含有 frontend/src/theme/tokens.json 与 backend/ 的那一层。
 # 这样脚本放在根目录 scripts/ 还是在 frontend/scripts/ 都能跑，避免搬目录就失效。
 def _find_project_root() -> Path:
@@ -36,6 +39,7 @@ TOKENS = FRONTEND / "src" / "theme" / "tokens.json"
 CSS_OUT = FRONTEND / "src" / "theme" / "tokens.generated.css"
 ECHARTS_OUT = FRONTEND / "src" / "theme" / "echarts.generated.json"
 MPL_OUT = PROJECT / "backend" / "resources" / "cbc.mplstyle"
+THEME_OUT = PROJECT / "backend" / "resources" / "theme.json"
 
 BANNER = "/* 由 scripts/gen_theme.py 从 tokens.json 生成，请勿手改。 */\n"
 
@@ -99,25 +103,28 @@ def build_echarts(tokens: dict[str, Any]) -> dict[str, Any]:
 
 
 def build_mplstyle(tokens: dict[str, Any]) -> str:
-    color = tokens["color"]
-    series = " ".join(tokens["chart"]["series"])
+    """只写与颜色无关的版式项。
+
+    **不要往这里写颜色**：matplotlibrc 把 ``#`` 当注释起始，``axes.edgecolor: #E2E8F0``
+    会被截成空值（报 ``does not look like a color arg``），``cycler('color', ['#0072B2'])``
+    也会在第一个 ``#`` 处断掉。颜色统一由 ``app/services/render.py`` 从 ``theme.json``
+    注入 rcParams，仍然是单一来源（NFR-M-07）。
+    """
     return "\n".join(
         [
             "# 由 scripts/gen_theme.py 从 tokens.json 生成，请勿手改。",
-            f"figure.facecolor: {color['bg_surface']}",
-            f"axes.facecolor: {color['bg_surface']}",
-            f"savefig.facecolor: {color['bg_surface']}",
-            f"text.color: {color['text_primary']}",
-            f"axes.labelcolor: {color['text_secondary']}",
-            f"axes.edgecolor: {color['border']}",
-            f"axes.grid: True",
-            f"grid.color: {color['grid']}",
-            f"axes.prop_cycle: cycler('color', [{', '.join(repr(c) for c in tokens['chart']['series'])}])",
+            "# 颜色不写在这里：matplotlibrc 视 '#' 为注释起始，十六进制色值会被截断。",
+            "# 颜色由 backend/app/services/render.py 从 theme.json 注入（单一来源）。",
+            "axes.grid: True",
+            "grid.linewidth: 0.6",
+            "grid.alpha: 0.7",
             "font.size: 11",
             "figure.dpi: 120",
             "savefig.dpi: 300",
             "axes.unicode_minus: False",
-            f"# series order: {series}",
+            "axes.titlesize: 12",
+            "axes.titlelocation: left",
+            "figure.autolayout: False",
             "",
         ]
     )
@@ -128,6 +135,8 @@ def render_all(tokens: dict[str, Any]) -> dict[Path, str]:
         CSS_OUT: build_css(tokens),
         ECHARTS_OUT: json.dumps(build_echarts(tokens), ensure_ascii=False, indent=2) + "\n",
         MPL_OUT: build_mplstyle(tokens),
+        # 服务端原样消费：报告模板与 matplotlib 渲染器都从这里取色
+        THEME_OUT: json.dumps(tokens, ensure_ascii=False, indent=2) + "\n",
     }
 
 

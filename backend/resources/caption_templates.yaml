@@ -21,12 +21,14 @@ box:
   grouped_ns:   "女性{cn}均值 {female_mean}{unit}，男性 {male_mean}{unit}，差异无统计学意义（男 n={n_male} / 女 n={n_female}，p = {p_text}）"
   small_n:      "未做组间检验（{small_group} n = {n_small} < 10）；{cn} 男 {male_mean}{unit} / 女 {female_mean}{unit}"
   no_gender:    "{cn}中位数 {median}{unit}，n = {n}（数据未含性别，未按性别分组）"
+  unified:      "{cn}中位数 {median}{unit}，n = {n}（本数据集无性别，按统一区间 {low}–{high} {unit} 判定）"
   no_data:      "样本不足，未出图（有效样本 n = {n} < 5）"
   unit_noted:   "；{metric} 原单位 {orig_unit} 已按 ×10 归一"
 
 hist:
   main:         "{cn}中位数 {median}{unit}，{pct_normal}% 落在 {low}–{high} {unit} 区间内（n = {n}）"
   main_gender:  "{cn}中位数 {median}{unit}，按性别各自参考区间判定，{pct_normal}% 在区间内（n = {n}）；参考区间：{bands}"
+  unified:      "{cn}中位数 {median}{unit}，按统一区间 {low}–{high} {unit} 判定，{pct_normal}% 在区间内（n = {n}）"
   small_n:      "样本不足，未出图（有效样本 n = {n} < 5）"
   no_data:      "{cn}无有效数据（n = 0）"
   unit_noted:   "；{metric} 原单位 {orig_unit} 已按 ×10 归一"

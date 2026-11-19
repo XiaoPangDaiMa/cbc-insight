@@ -1,15 +1,13 @@
 # 由 scripts/gen_theme.py 从 tokens.json 生成，请勿手改。
-figure.facecolor: #FFFFFF
-axes.facecolor: #FFFFFF
-savefig.facecolor: #FFFFFF
-text.color: #0F172A
-axes.labelcolor: #475569
-axes.edgecolor: #E2E8F0
+# 颜色不写在这里：matplotlibrc 视 '#' 为注释起始，十六进制色值会被截断。
+# 颜色由 backend/app/services/render.py 从 theme.json 注入（单一来源）。
 axes.grid: True
-grid.color: #F1F5F9
-axes.prop_cycle: cycler('color', ['#0072B2', '#D55E00', '#009E73', '#CC79A7', '#E69F00', '#56B4E9', '#F0E442', '#000000'])
+grid.linewidth: 0.6
+grid.alpha: 0.7
 font.size: 11
 figure.dpi: 120
 savefig.dpi: 300
 axes.unicode_minus: False
-# series order: #0072B2 #D55E00 #009E73 #CC79A7 #E69F00 #56B4E9 #F0E442 #000000
+axes.titlesize: 12
+axes.titlelocation: left
+figure.autolayout: False

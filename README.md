@@ -283,9 +283,27 @@ backend\.venv\Scripts\python.exe scripts\gen_theme.py --check  # 校验产物是
 改 `frontend/src/theme/tokens.json` 后重跑，CSS 变量、ECharts 主题、matplotlib 样式同时更新；
 **组件里不写任何字面十六进制色值**。
 
-**参考区间**在 `backend/resources/reference_ranges.yaml`（默认 WS/T 405-2012 成人区间，
-男女分开，版本号 `v2026.11.1`）。也可以在界面或 `PUT /api/v1/reference-ranges` 改，
-每次修改都会入库一份只读快照，历史报告仍可复现。
+**参考区间**默认表在 `backend/resources/reference_ranges.yaml`（WS/T 405-2012 成人区间，
+男女分开，版本号 `v2026.11.1`）。它**只读**——谁也不能改默认表，包括管理员（v1.6 起没有管理员）。
+
+改区间走「我的参考区间」页（侧栏第三个入口，接口 `/api/v1/me/reference-ranges`）：
+
+| 层 | 谁能改 | 存哪 | 标识 |
+|---|---|---|---|
+| 默认 | 谁都不能改 | YAML（只读） | `default@2026.11.1` |
+| 我的 | 自己，整份 16 项一起存，**必须填理由** | 数据库 `user_ranges`（只追加，版本号 +1） | `user#v3` |
+| 临时 | 只在数据集详情「区间」tab 里试算 | 内存，不落库 | `temp#03bd4c2d1852` |
+
+- **改了区间不会自动重判**。旧判定还留在原地，页面顶部出现「按当前区间重判」横幅；
+  点它只重放 S6–S7（10 万行约 3–8 秒，`sample_index` 一个都不变），旧口径快照归档到
+  `backend/data/processed/<id>/history/`。
+- **临时试算不落库、不出现在导出件里**——试算态禁止导出，这是硬约束（RK-26）。
+- 每份判定都把当时生效的整份区间快照进 `artifacts/ranges.snapshot.json`，所以"这份结论是按
+  哪套区间算的"永远可查；报告、CSV 的 `*_meta.json` 里都带 `ri_source` 与 `ranges_digest`。
+
+> 老库升级（B3 之前建的库）要先跑一次迁移，它会先备份 `backend/data/app.db`：
+> `backend\.venv\Scripts\python.exe scripts\migrate_b3.py --dry-run` 看一眼，去掉 `--dry-run` 执行。
+> 新克隆的仓库不需要——`create_all` 直接建新结构。
 
 ---
 
@@ -301,24 +319,26 @@ backend\.venv\Scripts\python.exe scripts\gen_theme.py --check  # 校验产物是
 | FR-06 对比 | 清洗前后行数、按原因计数的删除明细 |
 | FR-07~13 图 | 箱线（按性别分组 + 两组参考带）、直方（区间内外占比）、相关热力（Spearman + 数学耦合标注）、散点 |
 | FR-14 筛选 | 过滤条件与年龄/性别组合，结果与导出共用同一列定义 |
-| FR-16/17 判定 | 11 种模式 + `UNCLASSIFIED` 兜底、严重度排序；`gender` 缺失判 `NA`，不套男性区间 |
+| FR-16/17 判定 | 11 种模式 + `UNCLASSIFIED` 兜底、严重度排序；`gender` 缺失判 `NA`，不套男性区间；`unified_ranges` 显式开关（用户勾选才按统一区间判，结果标 `unified`） |
 | FR-18/19/35 导出 | UTF-8-BOM CSV + 同名 `*_meta.json`，预览与下载列名/顺序/数量完全一致 |
 | FR-30 指标状态 | 常驻面板，三通道编码（颜色 + ↑↓—∅ + 文字），`MIXED` 显示"两侧均异常" |
 | FR-31 体检单 | 条长用标准化位置 `pos = (x − low) / (high − low)`，量纲不同也可比 |
 | FR-32 图注 | 模板渲染 + 四条退化规则（n<10 无 p 值、p≥0.05 不说"显著"、\|ρ\|<0.3 不解读、缺 gender 不提男女） |
-| FR-33/34 账号 | 注册即登录、改名、改密、连续失败 5 次锁 15 分钟、登出吊销 refresh |
+| FR-33/34 账号 | 注册即登录、改名、改密、连续失败 5 次锁 15 分钟、登出吊销 refresh；**v1.6 起无角色概念**，只有归属隔离 |
 | FR-28 数据集 | 列表、切换、重命名、级联删除（含磁盘文件清理） |
+| FR-24/36/37 区间 | 三层区间（临时 > 我的 > 默认）、整份保存 + 必填理由、版本历史、重判只重放 S6–S7、拖/输试算不落库 |
+| FR-20/21 报告与图 | 单文件 HTML（base64 内嵌 3 图，含免责声明）、PNG 300dpi / SVG 下载 |
 
 ## 八、还没做
 
-- 前端「筛选」tab 与异常清单导出（M3 余项）、FR-29 多数据集并排对比（M4）、
-  FR-20/21 图表与 HTML 报告导出（M4）、Playwright E2E（M4）。
-- Redis 队列：当前 10 万行以内走同步链路，超过 `sync_clean_budget_seconds` 再接 RQ。
-- PDF 解析（FR-25）、跨数据集统计推断（v2，且须先论证可比性）。
+- 前端「筛选」tab 与异常清单导出（M3 余项）、FR-29 多数据集并排对比（M4）。
+- Playwright E2E（只做一条主流程）、前端集成测试（`frontend/tests/integration/` 目前是空的）。
+- Redis 缓存与队列：当前 10 万行以内走同步链路（实测 19.4 s），超过 `sync_clean_budget_seconds` 再接 RQ。
+- PDF 解析（FR-26）、跨数据集统计推断（v2，且须先论证可比性）、审计日志（FR-25）。
 
 ---
 
-## 九、三条实现与需求文档不一致的地方（待同步回 SRS）
+## 九、五条实现与需求文档不一致的地方（待同步回 SRS）
 
 1. **BR-07 / 5.1 缺兜底模式**：11 种模式之外，"1–2 项异常但不匹配任何模式"的样本无处归类。
    实现新增 `UNCLASSIFIED`（其他异常组合）；异常 ≥3 项仍归 `MULTI_ABNORMAL`。
@@ -327,6 +347,15 @@ backend\.venv\Scripts\python.exe scripts\gen_theme.py --check  # 校验产物是
 3. **BR-03 未区分核心字段**：缺失率 > 30% 整列剔除若作用在 `hgb/wbc/plt` 上，
    S6 会输出"没有任何异常"——用户看到一份干净报告，比报错更危险。
    实现中核心三字段豁免剔列、只记告警。
+
+4. **区间项数写成 16，实际是 15 项**：`reference_ranges.yaml` 里是
+   `wbc/rbc/hgb/hct/mcv/mch/mchc/rdw/plt/mpv` + 五分类百分比（`neut/lymph/mono/eo/baso_pct`），
+   共 15 项——五分类**绝对值**（`NE#` 等）没有独立参考区间，在分类上属于派生量。
+   SRS 3.5.1 与 FR-24 的"16 项"应改为 15 项；实现以 15 项为准（`ranges_service.RANGE_METRICS`）。
+
+5. **`/ranges-snapshot` 多返回一个 `has_snapshot`**：B3 之前判定的老数据没有快照，
+   "没有快照"与"不陈旧"是两件事——前者该提示"补建快照并重判"，后者才该说"口径一致"。
+   这个字段未写进 SRS 8.1，建议补上。
 
 ---
 

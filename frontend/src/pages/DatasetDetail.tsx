@@ -3,20 +3,77 @@ import { useParams, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 
 import { api, keys } from "@/api/hooks";
+import { download, saveBlob } from "@/api/client";
 import { EChart } from "@/components/EChart";
 import { MetricCard } from "@/components/MetricCard";
+import { RangesPanel } from "@/components/RangesPanel";
 import { SampleProfile } from "@/components/SampleProfile";
 import { EmptyState, ErrorNotice } from "@/components/EmptyState";
 import { fmtPct, fmtPercentValue } from "@/lib/format";
 
-type Tab = "analysis" | "filter" | "anomaly" | "quality";
+type Tab = "analysis" | "ranges" | "filter" | "anomaly" | "quality";
 
 const TABS: { key: Tab; label: string }[] = [
   { key: "analysis", label: "分析" },
+  { key: "ranges", label: "区间" },
   { key: "filter", label: "筛选" },
   { key: "anomaly", label: "异常" },
   { key: "quality", label: "数据详情" },
 ];
+
+/** 下载/打开导出文件：都走带令牌的 download 通道，文件名从 Content-Disposition 取。 */
+function useExport() {
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function run(path: string, mode: "save" | "open" = "save") {
+    setBusy(path);
+    setError(null);
+    try {
+      const { blob, filename } = await download(path);
+      if (mode === "open") {
+        const url = URL.createObjectURL(blob);
+        window.open(url, "_blank", "noopener");
+        // 给新标签页留出读取时间再回收，否则 Safari/Firefox 会先崩掉
+        window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      } else {
+        saveBlob(blob, filename);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "导出失败");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return { busy, error, run };
+}
+
+function ExportButton({
+  label,
+  path,
+  mode = "save",
+  busy,
+  run,
+}: {
+  label: string;
+  path: string;
+  mode?: "save" | "open";
+  busy: string | null;
+  run: (path: string, mode?: "save" | "open") => Promise<void>;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => void run(path, mode)}
+      disabled={busy !== null}
+      className="rounded border px-2 py-[2px] text-[11px] disabled:opacity-50"
+      style={{ borderColor: "var(--color-border)", color: "var(--color-text-secondary)" }}
+    >
+      {busy === path ? "…" : label}
+    </button>
+  );
+}
 
 /** 数据集详情：四个 tab。分析页的区块顺序固定（4.3.3），质量图不放在本 tab。 */
 export function DatasetDetail() {
@@ -26,6 +83,7 @@ export function DatasetDetail() {
   const metricParam = params.get("metric");
   const [selected, setSelected] = useState<string | null>(metricParam);
   const [sampleIndex, setSampleIndex] = useState<number | null>(null);
+  const exporter = useExport();
 
   const dataset = useQuery({
     queryKey: keys.dataset(datasetId),
@@ -110,10 +168,27 @@ export function DatasetDetail() {
             </button>
           ))}
         </nav>
+        <div className="flex items-center gap-1">
+          <ExportButton
+            label="打开报告"
+            path={`/datasets/${datasetId}/report.html`}
+            mode="open"
+            busy={exporter.busy}
+            run={exporter.run}
+          />
+          <ExportButton
+            label="下载报告"
+            path={`/datasets/${datasetId}/report.html`}
+            busy={exporter.busy}
+            run={exporter.run}
+          />
+        </div>
       </header>
+      {exporter.error && <p className="text-[11px]" style={{ color: "var(--color-status-high)" }}>{exporter.error}</p>}
 
-      {tab === "analysis" && (
-        <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_320px]">
+      {tab === "ranges" && <RangesPanel datasetId={datasetId} />}
+
+      {tab === "analysis" && (        <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_320px]">
           <div className="flex flex-col gap-3">
             <section className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
               {status.data?.metrics.map((item) => (
@@ -132,9 +207,17 @@ export function DatasetDetail() {
             </section>
 
             <section className="card p-3">
-              <h2 className="text-[13px] font-medium" style={{ color: "var(--color-text-secondary)" }}>
-                分布（按性别分组，叠加参考区间）
-              </h2>
+              <div className="flex items-center justify-between">
+                <h2 className="text-[13px] font-medium" style={{ color: "var(--color-text-secondary)" }}>
+                  分布（按性别分组，叠加参考区间）
+                </h2>
+                <ExportButton
+                  label="PNG"
+                  path={`/datasets/${datasetId}/charts/box/image?fmt=png&metric=${activeMetric}`}
+                  busy={exporter.busy}
+                  run={exporter.run}
+                />
+              </div>
               {box.error && <ErrorNotice error={box.error} />}
               {box.data && <EChart option={box.data.echarts_option} height={320} />}
               {box.data && (
@@ -145,9 +228,17 @@ export function DatasetDetail() {
             </section>
 
             <section className="card p-3">
-              <h2 className="text-[13px] font-medium" style={{ color: "var(--color-text-secondary)" }}>
-                直方图（区间内外占比）
-              </h2>
+              <div className="flex items-center justify-between">
+                <h2 className="text-[13px] font-medium" style={{ color: "var(--color-text-secondary)" }}>
+                  直方图（区间内外占比）
+                </h2>
+                <ExportButton
+                  label="PNG"
+                  path={`/datasets/${datasetId}/charts/hist/image?fmt=png&metric=${activeMetric}`}
+                  busy={exporter.busy}
+                  run={exporter.run}
+                />
+              </div>
               {hist.error && <ErrorNotice error={hist.error} />}
               {hist.data && <EChart option={hist.data.echarts_option} height={280} />}
               {hist.data && (
@@ -158,11 +249,19 @@ export function DatasetDetail() {
             </section>
 
             <section className="card p-3">
-              <h2 className="text-[13px] font-medium" style={{ color: "var(--color-text-secondary)" }}>
-                指标间相关（含数学耦合标注）
-              </h2>
+              <div className="flex items-center justify-between">
+                <h2 className="text-[13px] font-medium" style={{ color: "var(--color-text-secondary)" }}>
+                  指标间相关（含数学耦合标注）
+                </h2>
+                <ExportButton
+                  label="PNG"
+                  path={`/datasets/${datasetId}/charts/corr/image?fmt=png`}
+                  busy={exporter.busy}
+                  run={exporter.run}
+                />
+              </div>
               {corr.error && <ErrorNotice error={corr.error} />}
-              {corr.data && <EChart option={corr.data.echarts_option} height={360} />}
+              {corr.data && <EChart option={corr.data.echarts_option} height={560} />}
               {corr.data && (
                 <p className="mt-1 text-[12px]" style={{ color: "var(--color-text-primary)" }}>
                   {corr.data.caption}

@@ -7,6 +7,7 @@ import { Dashboard } from "@/pages/Dashboard";
 import { DatasetDetail } from "@/pages/DatasetDetail";
 import { ExportCenter } from "@/pages/ExportCenter";
 import { Login } from "@/pages/Login";
+import { ReferenceRanges } from "@/pages/ReferenceRanges";
 import { Register } from "@/pages/Register";
 
 export default function App() {
@@ -23,6 +24,7 @@ export default function App() {
       >
         <Route index element={<Dashboard />} />
         <Route path="/datasets/:datasetId" element={<DatasetDetail />} />
+        <Route path="/reference" element={<ReferenceRanges />} />
         <Route path="/export" element={<ExportCenter />} />
         <Route path="/account" element={<Account />} />
       </Route>

@@ -1,0 +1,53 @@
+{
+  "$comment": "唯一配色与排版来源（NFR-M-07）。组件里禁止出现字面十六进制色值，改色只改这里再跑 scripts/gen_theme.py。状态色的语义固定，不随主题换色相。",
+  "color": {
+    "bg_page": "#F8FAFC",
+    "bg_surface": "#FFFFFF",
+    "bg_subtle": "#F1F5F9",
+    "border": "#E2E8F0",
+    "border_strong": "#CBD5E1",
+    "text_primary": "#0F172A",
+    "text_secondary": "#475569",
+    "text_muted": "#94A3B8",
+    "brand": "#0F766E",
+    "brand_hover": "#115E59",
+    "brand_soft": "#F0FDFA",
+    "danger": "#B91C1C",
+    "status_low": "#2563EB",
+    "status_normal": "#16A34A",
+    "status_high": "#DC2626",
+    "status_na": "#6B7280",
+    "refband": "#E0F2FE",
+    "grid": "#F1F5F9"
+  },
+  "chart": {
+    "series": [
+      "#0072B2",
+      "#D55E00",
+      "#009E73",
+      "#CC79A7",
+      "#E69F00",
+      "#56B4E9",
+      "#F0E442",
+      "#000000"
+    ]
+  },
+  "space": {
+    "1": 4,
+    "2": 8,
+    "3": 12,
+    "4": 16,
+    "5": 24,
+    "6": 32,
+    "7": 48
+  },
+  "radius": {
+    "sm": 4,
+    "md": 8,
+    "lg": 12
+  },
+  "font": {
+    "family": "\"Inter\", \"PingFang SC\", \"Microsoft YaHei\", \"Noto Sans CJK SC\", system-ui, sans-serif",
+    "mono": "\"JetBrains Mono\", ui-monospace, SFMono-Regular, monospace"
+  }
+}

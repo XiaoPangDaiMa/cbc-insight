@@ -112,14 +112,56 @@ def caption_box(
     comparison: Mapping[str, Any] | None = None,
     decimals: int = 2,
     unit_note: str = "",
+    unified_bands: tuple[float, float] | None = None,
     templates: Mapping[str, Any] | None = None,
 ) -> Caption:
     """箱线图结论。
 
     ``groups`` 形如 ``{"male": {"n": 120, "mean": 152.3}, "female": {...}}``；
+    数据没有性别列时传 ``{"all": {...}}``（只画一组）。
     ``comparison`` 是 :func:`app.pipeline.stats.compare_groups` 的原样输出。
+    ``unified_bands`` 仅用于"无性别 + 用户显式按统一区间判定"（FR-16）：给出
+    ``(low, high)``，句式改为统一区间口径，绝不说"按性别各自判定"。
     """
     tpl = templates or load_templates()
+
+    # 单组模式（数据没有性别列）
+    single = groups.get("all") or {}
+    if single:
+        total = int(single.get("n") or 0)
+        if total < MIN_PLOT_N:
+            text, template = render(tpl, "box", "no_data", n=total)
+            return Caption(guard(text, tpl), "no_data", template, {"n": total})
+        if unified_bands:
+            low, high = unified_bands
+            text, template = render(
+                tpl,
+                "box",
+                "unified",
+                cn=metric_cn,
+                median=fmt(single.get("median"), decimals),
+                unit=unit,
+                low=fmt(low, decimals),
+                high=fmt(high, decimals),
+                n=total,
+            )
+            return Caption(
+                guard(text + unit_note, tpl),
+                "unified",
+                template,
+                {"n": total, "low": low, "high": high, "ri_source": "unified"},
+            )
+        text, template = render(
+            tpl,
+            "box",
+            "no_gender",
+            cn=metric_cn,
+            median=fmt(single.get("median"), decimals),
+            unit=unit,
+            n=total,
+        )
+        return Caption(guard(text + unit_note, tpl), "no_gender", template, {"n": total})
+
     male = groups.get("male") or {}
     female = groups.get("female") or {}
     n_male = int(male.get("n") or 0)
@@ -151,7 +193,9 @@ def caption_box(
 
     comparison = comparison or {}
     performed = bool(comparison.get("performed"))
-    p_value = comparison.get("p_value")
+    # compare_groups 的字段名是 ``p``；早期图表侧写的是 ``p_value``，这里两种都认，
+    # 否则会出现"检验做了、却有 p 值不显示写成 —"的假文案（B1 真实数据体检发现）
+    p_value = comparison.get("p_value", comparison.get("p"))
 
     if min(n_male, n_female) < MIN_GROUP_N or not performed:
         small_group, n_small = ("男性", n_male) if n_male <= n_female else ("女性", n_female)
@@ -230,6 +274,7 @@ def caption_hist(
     decimals: int = 2,
     unit_note: str = "",
     bands_text: str = "",
+    unified: bool = False,
     templates: Mapping[str, Any] | None = None,
 ) -> Caption:
     tpl = templates or load_templates()
@@ -241,6 +286,26 @@ def caption_hist(
         return Caption(guard(text, tpl), "small_n", template, {"n": n})
 
     pct = 100.0 * float(pct_normal or 0.0)
+    if unified:
+        # 无性别 + 用户显式按统一区间判定：句式必须说明"统一区间"，不得写成"按性别各自"
+        text, template = render(
+            tpl,
+            "hist",
+            "unified",
+            cn=metric_cn,
+            median=fmt(median, decimals),
+            unit=unit,
+            pct_normal=fmt(pct, 1),
+            low=fmt(low, decimals),
+            high=fmt(high, decimals),
+            n=n,
+        )
+        return Caption(
+            guard(text + unit_note, tpl),
+            "unified",
+            template,
+            {"n": n, "pct_normal": round(pct, 2), "low": low, "high": high, "ri_source": "unified"},
+        )
     if bands_text:
         # 性别相关指标：不能拿一条区间套所有人，句式必须换（BR-17）
         text, template = render(

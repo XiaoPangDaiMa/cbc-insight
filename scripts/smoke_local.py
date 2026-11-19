@@ -71,12 +71,12 @@ def main() -> None:
         ):
             response = client.post(f"/api/v1/datasets/{dataset_id}/charts/{kind}", json=payload, headers=headers)
             data = response.json() if response.status_code == 200 else {}
-            print(
-                f"chart {kind}: {response.status_code} caption={data.get('caption')!r} points={len(data.get('points') or [])}"
-            )
+            points = len(data.get("points") or [])
+            print(f"chart {kind}: {response.status_code} caption={data.get('caption')!r} points={points}")
 
         exported = client.get(f"/api/v1/datasets/{dataset_id}/export/items", headers=headers)
-        print("export:", exported.status_code, exported.headers.get("x-export-filename"), len(exported.content), "bytes")
+        name = exported.headers.get("x-export-filename")
+        print("export:", exported.status_code, name, len(exported.content), "bytes")
         print("bom:", exported.content[:3] == b"\xef\xbb\xbf")
         print("csv head:", exported.content.decode("utf-8-sig").splitlines()[0][:160])
 

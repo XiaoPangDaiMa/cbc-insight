@@ -73,9 +73,14 @@ def reference_bands(metric: str, ranges) -> tuple[bool, list[dict]]:
 
 
 def metric_overview(
-    frame: pd.DataFrame, long: pd.DataFrame, fields: FieldDictionary, *, ranges=None
+    frame: pd.DataFrame, long: pd.DataFrame, fields: FieldDictionary, *, ranges=None, unified: bool = False
 ) -> list[dict]:
-    """FR-30 指标状态总览：一个指标一行，含三档占比与最大偏离。"""
+    """FR-30 指标状态总览：一个指标一行，含三档占比与最大偏离。
+
+    ``unified=True``（数据集无 gender、用户显式声明按统一区间判定）时，性别相关指标
+    也会给出 ``low/high``——取自长表里实际参与判定的那条统一区间，并把 ``ri_source``
+    标成 ``unified``，让界面能显示"本数据集按统一区间判定"的说明。
+    """
     total = len(frame)
     items: list[dict] = []
     for metric in fields.display_order:
@@ -87,6 +92,16 @@ def metric_overview(
         deviation = long.loc[long["metric"] == metric, "deviation_pct"]
         max_dev = float(deviation.max()) if len(deviation) else 0.0
         gender_dependent, bands = reference_bands(metric, ranges)
+        low = bands[0]["low"] if bands and not gender_dependent else None
+        high = bands[0]["high"] if bands and not gender_dependent else None
+        ri_source = "default"
+        if unified and gender_dependent:
+            rows = long[long["metric"] == metric]
+            if "low" in rows.columns and rows["low"].notna().any():
+                indexed = rows.dropna(subset=["low"])
+                low = float(indexed["low"].iloc[0])
+                high = float(indexed["high"].iloc[0])
+            ri_source = "unified"
         items.append(
             {
                 "metric": metric,
@@ -102,10 +117,11 @@ def metric_overview(
                 "q3": _f(valid.quantile(0.75)),
                 "min": _f(valid.min()),
                 "max": _f(valid.max()),
-                "low": bands[0]["low"] if bands and not gender_dependent else None,
-                "high": bands[0]["high"] if bands and not gender_dependent else None,
+                "low": low,
+                "high": high,
                 "gender_dependent": gender_dependent,
                 "ranges_by_gender": bands,
+                "ri_source": ri_source,
                 "max_deviation_pct": round(max_dev, 2),
                 **_status_shares(long, metric, total),
             }

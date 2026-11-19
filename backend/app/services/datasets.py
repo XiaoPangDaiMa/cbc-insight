@@ -15,7 +15,8 @@ from sqlalchemy.orm import Session
 
 from app.core.config import Settings, get_settings
 from app.core.errors import AppError
-from app.db.models import Dataset, User
+from app.db.models import Dataset, User, utcnow
+from app.pipeline.reference import ReferenceRanges
 from app.schemas.dataset import FilterClause
 from app.services.pipeline_runner import PipelineOutput, load_artifacts, run_pipeline
 
@@ -34,8 +35,19 @@ def save_upload(
     data: bytes,
     *,
     settings: Settings | None = None,
+    unified_ranges: bool = False,
+    ranges: ReferenceRanges | None = None,
+    ri_source: str = "default",
+    ri_kind: str = "default",
 ) -> Dataset:
-    """落盘 → 哈希判重 → 自动跑 S1–S7（9.1：上传即自动串联）。"""
+    """落盘 → 哈希判重 → 自动跑 S1–S7（9.1：上传即自动串联）。
+
+    ``unified_ranges`` 由上传页的显式勾选传入（FR-16 唯一例外）：仅当用户声明
+    "本数据集无性别，按统一区间判定"时才为 True；默认 False 保持 BR-17 的 NA 语义。
+
+    ``ranges`` 是**当次生效的三层区间**（临时 > 我的 > 默认，3.5.1）。不传则用默认表——
+    上传时就用用户自己的区间，才不会出现"页面显示我的区间、结果却按默认表判"的错位。
+    """
     settings = settings or get_settings()
     settings.ensure_dirs()
 
@@ -71,7 +83,13 @@ def save_upload(
 
     try:
         output: PipelineOutput = run_pipeline(
-            raw_path, dataset_id=dataset.id, settings=settings
+            raw_path,
+            dataset_id=dataset.id,
+            settings=settings,
+            unified_ranges=unified_ranges,
+            ranges=ranges,
+            ri_source=ri_source,
+            ri_kind=ri_kind,
         )
     except AppError:
         dataset.status = "failed"
@@ -87,9 +105,15 @@ def save_upload(
     dataset.rows = output.rows
     dataset.columns = output.columns
     dataset.ri_version = output.ri_version
+    dataset.ri_source = output.ri_source
+    dataset.judged_at = utcnow()
+    dataset.ranges_snapshot = output.ranges_snapshot
+    dataset.unified_ranges = unified_ranges
     dataset.mapping = output.mapping
     dataset.quality = output.quality
     output.clean_report["health"] = output.health
+    # 各阶段耗时一并留档：NFR-P-01/02 的验收要能对着数字说话，而不是"感觉挺快"
+    output.clean_report["timings"] = {k: round(v, 3) for k, v in output.timings.items()}
     dataset.clean_report = output.clean_report
     dataset.stats = output.stats
     dataset.anomaly = output.anomaly

@@ -46,7 +46,6 @@ class User(Base):
     username: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     display_name: Mapped[str] = mapped_column(String(64))
     password_hash: Mapped[str] = mapped_column(String(128), default="")
-    role: Mapped[str] = mapped_column(String(16), default="analyst")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
     #: 连续失败次数与锁定截止时刻（NFR-S-07）。**锁定以数据库为准**，
@@ -91,6 +90,29 @@ class ReferenceSnapshot(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class UserRanges(Base):
+    """用户自有的参考区间（SRS 3.5.1 三层模型的「我的区间」层）。
+
+    三条刻意的设计（3.5.1 四条硬性语义）：
+
+    * **每次保存是整份 16 项**，不是差异。差异存储会让"改了哪几项"随默认值升级而失真。
+    * **只追加不修改**：每次保存写一行新版本，``version`` 自增；历史版本保留，
+      这样才能回答"我上次把 HGB 下限定成多少"。
+    * **``note`` 必填**：改标准是有判断在里面的事，写不出理由的改动一个月后自己都不认。
+    """
+
+    __tablename__ = "user_ranges"
+    __table_args__ = (UniqueConstraint("user_id", "version", name="uq_user_ranges_version"),)
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    ranges: Mapped[dict] = mapped_column(JSON, default=dict)
+    digest: Mapped[str] = mapped_column(String(16), default="")
+    note: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class Dataset(Base):
     __tablename__ = "datasets"
     __table_args__ = (
@@ -112,6 +134,15 @@ class Dataset(Base):
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     ri_version: Mapped[str] = mapped_column(String(32), default="")
+    #: 判定口径标识：``default@2026.11.1`` / ``user#v5`` / ``unified@…``（3.5.1 口径标识表）
+    ri_source: Mapped[str] = mapped_column(String(48), default="")
+    #: 最近一次判定的时刻。改区间不会自动重判（BR-18），界面靠它判断"陈旧"
+    judged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    #: 判定当时生效区间的整份快照（3.5.1：判定即快照，16 项 + 口径 + digest）
+    ranges_snapshot: Mapped[dict] = mapped_column(JSON, default=dict)
+    #: FR-16 的唯一例外：数据集无 gender 列、用户上传时**显式勾选**按统一区间判定。
+    #: 默认 False（BR-17：性别缺失一律判 NA，系统不替用户猜）。
+    unified_ranges: Mapped[bool] = mapped_column(Boolean, default=False)
 
     #: 管线产物（9：每步必须落盘）。键名见 :mod:`app.services.pipeline_runner`
     artifacts: Mapped[dict] = mapped_column(JSON, default=dict)
@@ -135,6 +166,9 @@ class Dataset(Base):
             "columns": self.columns,
             "status": self.status,
             "ri_version": self.ri_version,
+            "ri_source": self.ri_source,
+            "judged_at": self.judged_at.isoformat() if self.judged_at else None,
+            "unified_ranges": bool(self.unified_ranges),
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }

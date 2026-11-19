@@ -1,7 +1,10 @@
 """FastAPI 依赖：当前用户与数据集的归属校验（FR-22、FR-28、NFR-S-03）。
 
 **越权一律返回 40401 而不是 40301**：403 等于告诉对方"这个 id 存在，只是不属于你"，
-可以拿来枚举他人数据集。40301 只用于"确实存在且你有权限、但当前角色不允许该操作"。
+可以拿来枚举他人数据集。
+
+v1.6 起**没有角色**（2.2「用户与可见性边界」）：每个账号只看得到自己的数据，
+不存在"管理员能看全站"这回事，因此这里也不再提供 ``require_admin``。
 """
 
 from __future__ import annotations
@@ -40,10 +43,3 @@ def get_owned_dataset(
     if dataset is None or dataset.user_id != user.id:
         raise AppError(40401)
     return dataset
-
-
-def require_admin(user: User = Depends(get_current_user)) -> User:  # noqa: B008
-    """FR-24 参考区间管理只对 admin 开放。"""
-    if user.role != "admin":
-        raise AppError(40301, detail="仅管理员可修改参考区间")
-    return user

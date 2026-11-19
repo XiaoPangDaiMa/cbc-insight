@@ -1,87 +1,34 @@
-"""参考区间管理（SRS 8.1、FR-24）。
+"""默认参考区间（SRS 3.5、附录 A）。
 
-区间外置的理由见 7.3 决策 7：不同实验室、不同检测系统的区间不同，换版本不该改代码。
-写入时**同时落库快照**——历史报告要能按当时的 ``ri_version`` 复现。
+v1.6 起**没有"管理员统一改区间"这回事**：默认表随代码发布（``resources/reference_ranges.yaml``），
+只读；用户自己的口径在 ``/me/reference-ranges``（``app/api/v1/ranges.py``）。
+这里保留的只是"看看默认表长什么样"+ 历史快照列表，方便对照"我的区间改了哪些项"。
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-import yaml
 from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.config import Settings, get_settings
-from app.core.deps import require_admin
-from app.core.errors import AppError
-from app.db.models import ReferenceSnapshot, User
+from app.db.models import ReferenceSnapshot
 from app.db.session import get_db
-from app.services.loader import load_reference_ranges, reset_caches
+from app.services import ranges_service
 
 router = APIRouter(prefix="/reference-ranges", tags=["reference"])
 
 
 @router.get("")
-def list_ranges() -> dict[str, Any]:
-    ranges = load_reference_ranges()
-    items = []
-    for metric, interval in ranges.default.items():
-        items.append(
-            {
-                "metric": metric,
-                "unit": interval.unit,
-                "low": interval.low,
-                "high": interval.high,
-                "gender": interval.gender or "all",
-                "source": interval.source,
-            }
-        )
+def list_default() -> dict[str, Any]:
+    ranges = ranges_service.default_effective()
     return {
         "version": ranges.version,
         "source": ranges.source,
-        "note": ranges.note,
-        "ranges": items,
+        "digest": ranges.digest,
+        "ranges": list(ranges_service.items_of(ranges.ranges).values()),
     }
-
-
-@router.put("")
-def update_ranges(
-    payload: dict[str, Any],
-    db: Session = Depends(get_db),  # noqa: B008
-    _: User = Depends(require_admin),  # noqa: B008
-    settings: Settings = Depends(get_settings),  # noqa: B008
-) -> dict[str, Any]:
-    """整份替换区间表。
-
-    刻意做成"整份替换"而不是"逐条改"：逐条改会让不同指标的版本号错位，
-    报告里记一个 ``ri_version`` 却对应半新半旧的表，比不记还糟。
-    """
-    version = str(payload.get("version") or "").strip()
-    ranges = payload.get("ranges")
-    if not version:
-        raise AppError(42201, detail="缺少 version（如 2026.11.2）")
-    if not isinstance(ranges, dict) or not ranges:
-        raise AppError(42201, detail="ranges 必须是非空对象")
-
-    current = load_reference_ranges()
-    if version == current.version:
-        raise AppError(42201, detail=f"版本号 {version} 已存在，请递增版本号")
-
-    content = {"version": version, "source": payload.get("source", current.source), "ranges": ranges}
-    target = (settings.resources_dir / "reference_ranges.yaml")
-    if target.exists():
-        backup = target.with_suffix(".yaml.bak")
-        backup.write_bytes(target.read_bytes())
-    target.write_text(yaml.safe_dump(content, allow_unicode=True, sort_keys=False), encoding="utf-8")
-    reset_caches()
-
-    existing = db.scalar(select(ReferenceSnapshot).where(ReferenceSnapshot.version == version))
-    if existing is None:
-        db.add(ReferenceSnapshot(version=version, content=content))
-        db.commit()
-    return {"new_version": version}
 
 
 @router.get("/snapshots")

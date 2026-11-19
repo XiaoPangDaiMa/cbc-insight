@@ -172,10 +172,21 @@ class ReferenceRanges:
         """该指标是否存在性别差异（hgb / rbc / hct）。"""
         return metric in self.female_overrides
 
-    def resolve(self, metric: str, gender: str | None) -> tuple[Interval | None, str | None]:
+    def resolve(
+        self, metric: str, gender: str | None, *, unified: bool = False
+    ) -> tuple[Interval | None, str | None]:
         """返回 ``(区间, 未判定原因)``。
 
         ``reason`` 取值：``no_interval``（配置里没有该指标）、``gender_missing``（BR-17）。
+        ``unified=True`` 是 BR-17 的**唯一例外**（v1.6 迭代批次 B1 引入，写入 SRS FR-16）：
+
+        数据集本身没有 gender 列时，用户在上传页**显式勾选**"本数据集无性别，按统一区间
+        判定"。此时用 ``default`` 区间（即男性口径，3.5 的 default 就是成人通用/男性值）
+        参与判定，且每个受影响的指标都会被打上 ``ri_source = "unified"`` 标记，一路带到
+        图注、体检单与导出 meta。
+
+        这个参数之所以必须显式传、默认 False，是为了守住 BR-17 的本意：**系统不许偷偷
+        猜**。用户声明"这份数据没有性别"是一件事，系统自己假设"没写就按男的算"是另一件事。
         """
         base = self.default.get(metric)
         if base is None:
@@ -185,9 +196,22 @@ class ReferenceRanges:
                 return self.female_overrides[metric], None
             if gender == "male":
                 return base, None
+            if unified:
+                return base, None
             # BR-17：不得套用任一性别区间
             return None, "gender_missing"
         return base, None
+
+    def source_of(self, metric: str, gender: str | None, *, unified: bool = False) -> str:
+        """判定口径标记：``female`` / ``unified`` / ``default``（8.1 的 ``ri_source``）。"""
+        if self.gender_dependent(metric):
+            if gender == "female":
+                return "female"
+            if gender == "male":
+                return "default"
+            if unified:
+                return "unified"
+        return "default"
 
     def interval(self, metric: str, gender: str | None = None) -> Interval | None:
         return self.resolve(metric, gender)[0]

@@ -165,6 +165,81 @@ export interface ChartPayload {
   caption: string;
   caption_branch: string;
   supporting: Record<string, unknown>;
+  /** 这张图是按哪套区间画出来的（3.5.1）。trial=true 表示用户正在试算，未保存。 */
+  ri_effective?: RangesEffective;
+}
+
+/** 一层区间的身份：默认表 / 我的第 n 版 / 一次临时试算。 */
+export interface RangesEffective {
+  kind?: "default" | "user" | "temp";
+  source: string;
+  version?: string;
+  digest: string;
+  note?: string;
+  trial?: boolean;
+  items?: Record<string, RangeItem>;
+}
+
+export interface RangeItem {
+  metric: string;
+  name_cn: string;
+  unit: string;
+  low: number;
+  high: number;
+  female_low: number | null;
+  female_high: number | null;
+  gender_dependent: boolean;
+}
+
+/** 提交给 PUT /me/reference-ranges 的形状：只带数值，整份 15 项。 */
+export type RangeDraft = Record<string, { low: number; high: number; female_low?: number | null; female_high?: number | null }>;
+
+export interface MyRangesPayload {
+  default: { source: string; version: string; digest: string; items: Record<string, RangeItem> };
+  mine: {
+    source: string;
+    version: string;
+    digest: string;
+    note: string;
+    items: Record<string, RangeItem>;
+  } | null;
+  effective: RangesEffective;
+  metrics: string[];
+}
+
+export interface RangeVersionPayload {
+  version: number;
+  digest: string;
+  note: string;
+  created_at: string;
+}
+
+export interface RangesSnapshotPayload {
+  dataset_id: string;
+  ri_version: string;
+  ri_source: string | null;
+  judged_at: string | null;
+  snapshot: {
+    source?: string;
+    digest?: string;
+    version?: string;
+    note?: string;
+    unified?: boolean;
+    saved_at?: string;
+    items?: Record<string, RangeItem>;
+  };
+  current: { source: string; digest: string; version: string };
+  /** 判定时是否留下了快照；B3 之前判定的老数据会是 false（"没留证据"≠"不陈旧"）。 */
+  has_snapshot?: boolean;
+  stale: boolean;
+}
+
+export interface RejudgePayload {
+  ok: boolean;
+  dataset: DatasetPayload;
+  changed: { items?: number; samples?: number; comparable?: boolean };
+  timings: Record<string, number>;
+  ri_source: string;
 }
 
 export interface QualityIssue {

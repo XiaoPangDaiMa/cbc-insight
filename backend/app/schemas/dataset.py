@@ -43,6 +43,25 @@ class ChartRequest(BaseModel):
     bins: int = 20
     stage: Literal["raw", "cleaned"] = "cleaned"
     filters: list[FilterClause] = Field(default_factory=list)
+    #: 临时试算区间（FR-37）：``{"hgb": {"low": 120, "high": 170}}``，
+    #: 可带 ``female_low`` / ``female_high``。只在这次请求里生效，**不落库、不进导出**。
+    temp_ranges: dict[str, dict[str, float | None]] | None = None
+
+
+class RejudgeRequest(BaseModel):
+    """POST /datasets/{id}/rejudge（9.2）：用**已保存的**区间重放 S6–S7。
+
+    刻意不接临时区间：临时层只活在图表请求里，一旦让它写进产物，
+    "我看到的"和"报告里的"就会分叉（RK-26）。
+    """
+
+    note: str | None = None
+
+
+class TempRangesRequest(BaseModel):
+    """临时试算区间（FR-37）：只在这次请求/预览里生效，不落库。"""
+
+    temp_ranges: dict[str, dict[str, float | None]] = Field(default_factory=dict)
 
 
 class AnomalyRequest(BaseModel):

@@ -17,7 +17,7 @@ from pathlib import Path
 import pandas as pd
 
 from app.core.config import Settings, get_settings
-from app.core.errors import MissingFieldsError, UnitAmbiguousError
+from app.core.errors import AppError, MissingFieldsError, UnitAmbiguousError
 from app.pipeline.captions import caption_health
 from app.pipeline.cleaning import CleanResult, clean
 from app.pipeline.derive import add_sample_index
@@ -29,6 +29,7 @@ from app.pipeline.rules import anomaly_summary, flag_frame
 from app.pipeline.stats import compare_groups, correlation, group_overview, metric_overview
 from app.pipeline.units import UnitDecision, apply_decisions, detect_all
 from app.pipeline.validators import validate
+from app.services import ranges_service
 from app.services.loader import (
     load_fields,
     load_mapping_config,
@@ -47,6 +48,9 @@ class PipelineOutput:
     rows: int = 0
     columns: int = 0
     ri_version: str = ""
+    ri_source: str = "default"
+    ranges_snapshot: dict = field(default_factory=dict)
+    unified_ranges: bool = False
     health: str = ""
     timings: dict[str, float] = field(default_factory=dict)
     #: 供图表服务复用，不落库
@@ -65,6 +69,9 @@ class PipelineOutput:
             "rows": self.rows,
             "columns": self.columns,
             "ri_version": self.ri_version,
+            "ri_source": self.ri_source,
+            "ranges_snapshot": self.ranges_snapshot,
+            "unified_ranges": self.unified_ranges,
             "health": self.health,
             "timings": {k: round(v, 3) for k, v in self.timings.items()},
         }
@@ -86,10 +93,16 @@ def run_pipeline(
     ranges: ReferenceRanges | None = None,
     forced_units: dict[str, str] | None = None,
     confirmed_mapping: dict[str, str] | None = None,
+    unified_ranges: bool = False,
+    ri_source: str = "default",
+    ri_kind: str = "default",
 ) -> PipelineOutput:
     """读取 → 映射 → 单位归一 → 校验 → 清洗 → 派生 → 判定 → 统计。
 
     参数全部可注入，是为了让单元测试不必读全局配置就能跑同一套代码。
+
+    ``unified_ranges=True`` 只在数据集没有 gender 列、且用户在上传页显式勾选了
+    "按统一区间判定"时传 True（FR-16 的唯一例外）；其余情况保持 BR-17 的 NA 语义。
     """
     settings = settings or get_settings()
     fields = fields or load_fields()
@@ -158,10 +171,23 @@ def run_pipeline(
 
     # --- S6 判定 ---
     started = time.perf_counter()
-    long, summary = flag_frame(clean_frame, ranges)
+    long, summary = flag_frame(clean_frame, ranges, unified=unified_ranges)
     out.ri_version = ranges.version
+    out.ri_source = f"unified@{ranges.version}" if unified_ranges else ri_source
+    out.unified_ranges = unified_ranges
     out.anomaly = anomaly_summary(long, summary)
     out.anomaly["ri_version"] = ranges.version
+    out.anomaly["ri_source"] = out.ri_source
+    # 判定即快照（3.5.1）：这一刻用的是哪份表，之后谁改了区间都不影响这份结论
+    out.ranges_snapshot = ranges_service.snapshot_for(
+        dataset_id,
+        ranges,
+        source=ri_source,
+        kind=ri_kind,
+        unified=unified_ranges,
+        settings=settings,
+    )
+    out.artifacts["ranges_snapshot"] = str(ranges_service.snapshot_path(dataset_id, settings))
     _write_parquet(long, work_dir / "flagged.parquet", out, "flagged")
     _write_parquet(summary, work_dir / "summary.parquet", out, "summary")
     _write_json(out.anomaly, work_dir / "anomaly.json")
@@ -170,18 +196,15 @@ def run_pipeline(
 
     # --- S7 统计 ---
     started = time.perf_counter()
-    out.stats = {
-        "n": int(len(clean_frame)),
-        "ri_version": ranges.version,
-        "overview": metric_overview(clean_frame, long, fields, ranges=ranges),
-        "by_gender": group_overview(clean_frame, long, fields, by="gender"),
-        "by_age_band": group_overview(clean_frame, long, fields, by="age_band"),
-        "comparisons": {
-            str(metric): compare_groups(clean_frame, str(metric)) for metric in fields.metric_fields()
-        },
-        "correlation": correlation(clean_frame, fields),
-        "gender_missing_samples": int(out.anomaly.get("gender_missing_samples", 0)),
-    }
+    out.stats = _stats_payload(
+        clean_frame,
+        long,
+        fields,
+        ranges=ranges,
+        unified=unified_ranges,
+        ri_source=out.ri_source,
+        gender_missing_samples=int(out.anomaly.get("gender_missing_samples", 0)),
+    )
     _write_json(out.stats, work_dir / "stats.json")
     out.artifacts["stats"] = str(work_dir / "stats.json")
     timings["S7_stats"] = time.perf_counter() - started
@@ -200,6 +223,123 @@ def run_pipeline(
 def _write_parquet(frame: pd.DataFrame, path: Path, out: PipelineOutput, key: str) -> None:
     frame.to_parquet(path, index=False)
     out.artifacts[key] = str(path)
+
+
+def _stats_payload(
+    clean_frame: pd.DataFrame,
+    long: pd.DataFrame,
+    fields: FieldDictionary,
+    *,
+    ranges: ReferenceRanges,
+    unified: bool,
+    ri_source: str,
+    gender_missing_samples: int,
+) -> dict:
+    """S7 的统计装配。抽成函数是因为**重判也要产出同一份结构**（9.2）。"""
+    return {
+        "n": int(len(clean_frame)),
+        "ri_version": ranges.version,
+        "ri_source": ri_source,
+        "overview": metric_overview(clean_frame, long, fields, ranges=ranges, unified=unified),
+        "by_gender": group_overview(clean_frame, long, fields, by="gender"),
+        "by_age_band": group_overview(clean_frame, long, fields, by="age_band"),
+        "comparisons": {
+            str(metric): compare_groups(clean_frame, str(metric)) for metric in fields.metric_fields()
+        },
+        "correlation": correlation(clean_frame, fields),
+        "gender_missing_samples": int(gender_missing_samples),
+    }
+
+
+def rejudge(
+    dataset_id: str,
+    ranges: ReferenceRanges,
+    *,
+    ri_source: str,
+    ri_kind: str = "user",
+    unified_ranges: bool = False,
+    settings: Settings | None = None,
+    fields: FieldDictionary | None = None,
+) -> dict:
+    """**只重放 S6–S7**，不动 S1–S5（9.2）。
+
+    为什么不能整条管线重跑：S4 会重新清洗、重新编号 ``sample_index``，用户手里打开的
+    图表与体检单立刻错位，界面上看不出问题但所有点位都指向别人（RK-28 的近亲）。
+    ``clean.parquet`` 是已经定型的中间结果，重判只读它。
+
+    返回新统计、新异常摘要、新快照与"变了多少"——只有最后这一项能让用户判断
+    "这次改标准，是谁从正常变成了偏低"。
+    """
+    settings = settings or get_settings()
+    fields = fields or load_fields()
+    work_dir = settings.processed_dir / dataset_id
+    clean_path = work_dir / "clean.parquet"
+    if not clean_path.exists():
+        raise AppError(40401, detail="该数据集尚未清洗完成，无法重判")
+    clean_frame = pd.read_parquet(clean_path)
+
+    old_long: pd.DataFrame | None = None
+    old_flag = work_dir / "flagged.parquet"
+    if old_flag.exists():
+        old_long = pd.read_parquet(old_flag)
+
+    timings: dict[str, float] = {}
+    started = time.perf_counter()
+    long, summary = flag_frame(clean_frame, ranges, unified=unified_ranges)
+    timings["S6_flag"] = time.perf_counter() - started
+
+    anomaly = anomaly_summary(long, summary)
+    anomaly["ri_version"] = ranges.version
+    anomaly["ri_source"] = f"unified@{ranges.version}" if unified_ranges else ri_source
+
+    started = time.perf_counter()
+    stats = _stats_payload(
+        clean_frame,
+        long,
+        fields,
+        ranges=ranges,
+        unified=unified_ranges,
+        ri_source=anomaly["ri_source"],
+        gender_missing_samples=int(anomaly.get("gender_missing_samples", 0)),
+    )
+    timings["S7_stats"] = time.perf_counter() - started
+
+    snapshot = ranges_service.snapshot_for(
+        dataset_id,
+        ranges,
+        source=ri_source,
+        kind=ri_kind,
+        unified=unified_ranges,
+        settings=settings,
+    )
+
+    # 落盘顺序：先写新产物再返回，接口拿到 200 时磁盘已经是最新的
+    long.to_parquet(work_dir / "flagged.parquet", index=False)
+    summary.to_parquet(work_dir / "summary.parquet", index=False)
+    _write_json(anomaly, work_dir / "anomaly.json")
+    _write_json(stats, work_dir / "stats.json")
+
+    changed = _diff_verdicts(old_long, long)
+    return {
+        "stats": stats,
+        "anomaly": anomaly,
+        "snapshot": snapshot,
+        "ri_version": ranges.version,
+        "ri_source": anomaly["ri_source"],
+        "timings": {k: round(v, 3) for k, v in timings.items()},
+        "changed": changed,
+    }
+
+
+def _diff_verdicts(old_long: pd.DataFrame | None, new_long: pd.DataFrame) -> dict[str, int]:
+    """比较两次判定的三态变化：多少"样本×指标"、多少个样本换了结论。"""
+    if old_long is None or len(old_long) != len(new_long):
+        return {"items": 0, "samples": 0, "comparable": False}
+    old_status = old_long["status"].to_numpy()
+    new_status = new_long["status"].to_numpy()
+    changed_mask = old_status != new_status
+    samples = int(pd.unique(new_long.loc[changed_mask, "sample_index"]).size) if changed_mask.any() else 0
+    return {"items": int(changed_mask.sum()), "samples": samples, "comparable": True}
 
 
 def _health_line(cleaned: CleanResult, unit_log: list[str]) -> str:

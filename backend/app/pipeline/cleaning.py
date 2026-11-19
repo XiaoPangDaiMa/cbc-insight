@@ -160,9 +160,10 @@ def clean(
 
     # --- 4. 去重（保留首条）---
     if validated.duplicate_rows:
-        keep = [i for i in frame.index if i not in set(validated.duplicate_rows)]
-        frame.drop(index=set(validated.duplicate_rows), inplace=True)
-        frame = frame.loc[keep] if keep else frame.iloc[0:0]
+        # 注意：不要把 set(...) 写在推导式里——那样每一行都会重建一次集合，
+        # 十万行 × 两万个重复行就是二十亿次插入（实测这一行曾占 S4 的 260 s）。
+        drop_index = pd.Index(validated.duplicate_rows)
+        frame = frame.loc[~frame.index.isin(drop_index)]
         removed["duplicate"] = len(validated.duplicate_rows)
         log.append(CleanLogEntry(4, "dedupe", None, len(validated.duplicate_rows), "全字段重复，保留首条"))
 

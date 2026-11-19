@@ -13,7 +13,12 @@ import type {
   DatasetPayload,
   ExportPreviewPayload,
   MetricStatusPayload,
+  MyRangesPayload,
   QueryPayload,
+  RangeDraft,
+  RangesSnapshotPayload,
+  RangeVersionPayload,
+  RejudgePayload,
   SampleProfilePayload,
   StatsPayload,
   UploadPayload,
@@ -33,6 +38,9 @@ export const keys = {
   chart: (id: string, kind: string, metric: string) => ["chart", id, kind, metric] as const,
   profile: (id: string, index: number) => ["profile", id, index] as const,
   exportPreview: (id: string, kind: string) => ["export-preview", id, kind] as const,
+  myRanges: ["my-ranges"] as const,
+  rangeVersions: ["my-ranges", "versions"] as const,
+  rangesSnapshot: (id: string) => ["ranges-snapshot", id] as const,
 };
 
 export const api = {
@@ -80,4 +88,16 @@ export const api = {
     request<QueryPayload>(`/datasets/${id}/query`, { method: "POST", body }),
   exportPreview: (id: string, kind: string, scope = "all") =>
     request<ExportPreviewPayload>(`/datasets/${id}/export/preview?kind=${kind}&scope=${scope}`),
+
+  // 三层区间（3.5.1）：默认只读，用户那份整份保存，临时那份只在图表请求里
+  myRanges: () => request<MyRangesPayload>("/me/reference-ranges"),
+  saveRanges: (ranges: RangeDraft, note: string) =>
+    request<{ ok: boolean; version: number; digest: string }>("/me/reference-ranges", {
+      method: "PUT",
+      body: { ranges, note },
+    }),
+  resetRanges: () => request<{ ok: boolean }>("/me/reference-ranges/reset", { method: "POST" }),
+  rangeVersions: () => request<{ items: RangeVersionPayload[] }>("/me/reference-ranges/versions"),
+  rangesSnapshot: (id: string) => request<RangesSnapshotPayload>(`/datasets/${id}/ranges-snapshot`),
+  rejudge: (id: string) => request<RejudgePayload>(`/datasets/${id}/rejudge`, { method: "POST", body: {} }),
 };

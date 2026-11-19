@@ -6,6 +6,7 @@ import { api, keys } from "@/api/hooks";
 
 const NAV = [
   { to: "/", label: "工作台", end: true },
+  { to: "/reference", label: "我的参考区间" },
   { to: "/export", label: "导出中心" },
   { to: "/account", label: "账号" },
 ];
@@ -19,9 +20,9 @@ export function Layout() {
   const workspace = useQuery({ queryKey: keys.workspace, queryFn: api.workspace });
 
   return (
-    <div className="flex min-h-screen" style={{ backgroundColor: "var(--color-bg-page)" }}>
+    <div className="flex h-screen overflow-hidden" style={{ backgroundColor: "var(--color-bg-page)" }}>
       <aside
-        className="flex w-52 shrink-0 flex-col gap-1 border-r p-3"
+        className="flex h-full w-52 shrink-0 flex-col gap-1 overflow-y-auto border-r p-3"
         style={{ borderColor: "var(--color-border)", backgroundColor: "var(--color-bg-surface)" }}
       >
         <div className="px-2 py-3">
@@ -64,7 +65,7 @@ export function Layout() {
 
       <div className="flex min-w-0 flex-1 flex-col">
         <header
-          className="flex h-12 items-center justify-between gap-3 border-b px-4"
+          className="flex h-12 shrink-0 items-center justify-between gap-3 border-b px-4"
           style={{ borderColor: "var(--color-border)", backgroundColor: "var(--color-bg-surface)" }}
         >
           <div className="flex items-center gap-2 text-[12px]" style={{ color: "var(--color-text-secondary)" }}>
@@ -92,7 +93,7 @@ export function Layout() {
           </div>
         </header>
 
-        <main className="min-w-0 flex-1 p-4">
+        <main className="min-w-0 flex-1 overflow-y-auto p-4">
           <Outlet />
         </main>
       </div>

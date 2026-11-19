@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>{{ dataset.name }} · 分析报告</title>
+<style>
+  :root {
+    --bg-page: {{ color.bg_page }};
+    --bg-surface: {{ color.bg_surface }};
+    --border: {{ color.border }};
+    --text-primary: {{ color.text_primary }};
+    --text-secondary: {{ color.text_secondary }};
+    --text-muted: {{ color.text_muted }};
+    --brand: {{ color.brand }};
+    --brand-soft: {{ color.brand_soft }};
+    --status-low: {{ color.status_low }};
+    --status-normal: {{ color.status_normal }};
+    --status-high: {{ color.status_high }};
+    --status-na: {{ color.status_na }};
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 32px 40px 56px;
+    background: var(--bg-page); color: var(--text-primary);
+    font: 14px/1.7 "Microsoft YaHei", "PingFang SC", "Noto Sans SC", system-ui, sans-serif;
+  }
+  .page { max-width: 960px; margin: 0 auto; }
+  header { border-bottom: 2px solid var(--brand); padding-bottom: 16px; margin-bottom: 24px; }
+  h1 { margin: 0 0 6px; font-size: 22px; }
+  .meta { color: var(--text-secondary); font-size: 13px; }
+  .meta span + span::before { content: " · "; color: var(--text-muted); }
+  section { background: var(--bg-surface); border: 1px solid var(--border); border-radius: 8px; padding: 20px 22px; margin-bottom: 20px; }
+  h2 { font-size: 16px; margin: 0 0 12px; }
+  h3 { font-size: 14px; margin: 18px 0 8px; color: var(--text-secondary); }
+  p { margin: 8px 0; }
+  .health { background: var(--brand-soft); border-left: 3px solid var(--brand); padding: 10px 14px; border-radius: 4px; margin: 0 0 12px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { border-bottom: 1px solid var(--border); padding: 7px 8px; text-align: left; }
+  th { color: var(--text-secondary); font-weight: 600; background: transparent; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .tag { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 12px; border: 1px solid currentColor; }
+  .s-low { color: var(--status-low); }
+  .s-normal { color: var(--status-normal); }
+  .s-high { color: var(--status-high); }
+  .s-na { color: var(--status-na); }
+  figure { margin: 0 0 18px; }
+  figure img { width: 100%; border: 1px solid var(--border); border-radius: 6px; background: #fff; }
+  figcaption { color: var(--text-secondary); font-size: 12.5px; margin-top: 6px; }
+  .caption-strong { color: var(--text-primary); font-weight: 600; }
+  .muted { color: var(--text-muted); font-size: 12.5px; }
+  .disclaimer { border: 1px dashed var(--border); background: transparent; }
+  .disclaimer p { color: var(--text-secondary); }
+  footer { color: var(--text-muted); font-size: 12px; margin-top: 24px; }
+</style>
+</head>
+<body>
+<div class="page">
+  <header>
+    <h1>{{ dataset.name }} · 血常规数据分析报告</h1>
+    <div class="meta">
+      <span>生成时间 {{ generated_at }}</span>
+      <span>数据行数 {{ dataset.rows }}</span>
+      <span>参考区间 {{ ri_version }}</span>
+      <span>判定口径 {{ ri_source_text }}</span>
+      <span>CBC Insight v{{ app_version }}</span>
+    </div>
+  </header>
+
+  {% if health %}
+  <section>
+    <h2>一、数据健康度</h2>
+    <p class="health">{{ health }}</p>
+    <table>
+      <tr><th>阶段</th><th class="num">行数</th><th class="num">列数</th><th class="num">缺失率</th><th class="num">核心字段完整率</th></tr>
+      {% for row in stage_rows %}
+      <tr>
+        <td>{{ row.label }}</td>
+        <td class="num">{{ row.rows }}</td>
+        <td class="num">{{ row.columns }}</td>
+        <td class="num">{{ row.missing_rate }}</td>
+        <td class="num">{{ row.completeness }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% if dq_rows %}
+    <h3>数据质量规则（DQ）</h3>
+    <table>
+      <tr><th>编号</th><th>含义</th><th class="num">取值</th></tr>
+      {% for row in dq_rows %}
+      <tr><td>{{ row.code }}</td><td>{{ row.label }}</td><td class="num">{{ row.value }}</td></tr>
+      {% endfor %}
+    </table>
+    {% endif %}
+    {% if removed_rows %}
+    <h3>清洗剔除</h3>
+    <table>
+      <tr><th>原因</th><th class="num">行数</th></tr>
+      {% for row in removed_rows %}
+      <tr><td>{{ row.label }}</td><td class="num">{{ row.count }}</td></tr>
+      {% endfor %}
+    </table>
+    <p class="muted">剔除只针对"录入错误与重复行"（脏数据），取值范围合法但偏离参考区间的样本一律保留并判定，见第三部分。</p>
+    {% endif %}
+  </section>
+  {% endif %}
+
+  <section>
+    <h2>二、指标状态总览</h2>
+    <table>
+      <tr>
+        <th>指标</th><th>单位</th><th class="num">n</th><th class="num">中位数</th>
+        <th>参考区间</th><th class="num">偏低</th><th class="num">正常</th><th class="num">偏高</th><th class="num">最大偏离</th>
+      </tr>
+      {% for card in cards %}
+      <tr>
+        <td>{{ card.name_cn }}</td>
+        <td>{{ card.unit }}</td>
+        <td class="num">{{ card.n }}</td>
+        <td class="num">{{ card.median }}</td>
+        <td>{{ card.range_text }}</td>
+        <td class="num s-low">{{ card.pct_low }}</td>
+        <td class="num s-normal">{{ card.pct_normal }}</td>
+        <td class="num s-high">{{ card.pct_above }}</td>
+        <td class="num">{{ card.max_deviation }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% if na_note %}<p class="muted">{{ na_note }}</p>{% endif %}
+    {% if unified_note %}<p class="muted">{{ unified_note }}</p>{% endif %}
+  </section>
+
+  <section>
+    <h2>三、图表</h2>
+    {% for chart in charts %}
+    <figure>
+      <img src="data:{{ chart.mime }};base64,{{ chart.base64 }}" alt="{{ chart.title }}" />
+      <figcaption><span class="caption-strong">{{ chart.caption }}</span>
+        {% if chart.note %}<br /><span class="muted">{{ chart.note }}</span>{% endif %}
+      </figcaption>
+    </figure>
+    {% endfor %}
+  </section>
+
+  {% if anomalies %}
+  <section>
+    <h2>四、异常样本（按严重度排序，前 {{ anomalies|length }} 条）</h2>
+    <table>
+      <tr><th class="num">序号</th><th>性别</th><th>年龄</th><th>模式</th><th>异常指标</th><th class="num">严重度</th></tr>
+      {% for row in anomalies %}
+      <tr>
+        <td class="num">{{ row.sample_index }}</td>
+        <td>{{ row.gender }}</td>
+        <td class="num">{{ row.age }}</td>
+        <td>{{ row.pattern_text }}</td>
+        <td>{{ row.abnormal_metrics }}</td>
+        <td class="num">{{ row.severity }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+    <p class="muted">模式名只描述"哪几项超出参考区间"，不是疾病诊断。完整清单请在系统中导出 CSV。</p>
+  </section>
+  {% endif %}
+
+  <section class="disclaimer">
+    <h2>免责声明</h2>
+    <p>本报告由 CBC Insight 基于脱敏公开数据集（{{ dataset.license_note }}）自动生成，使用 {{ ri_version }} 版参考区间。系统只输出"实测值与参考区间的比较结果"，不提供任何疾病诊断、预测或治疗建议，不能替代执业医师的临床判断。</p>
+    <p>参考区间随实验室、检测系统与人群而异，实际解读请以报告单标注的区间为准。</p>
+  </section>
+
+  <footer>由 CBC Insight 自动生成 · {{ generated_at }} · 报告版本 {{ report_version }}</footer>
+</div>
+</body>
+</html>

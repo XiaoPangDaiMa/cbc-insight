@@ -14,7 +14,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, status
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings, get_settings
@@ -49,7 +49,6 @@ def _user_payload(user: User) -> UserPayload:
     return UserPayload(
         user_id=user.id,
         username=user.display_name or user.username,
-        role=user.role,
         created_at=user.created_at.isoformat() if user.created_at else None,
         last_login_at=user.last_login_at.isoformat() if user.last_login_at else None,
     )
@@ -97,7 +96,6 @@ def register(
         username=key,
         display_name=payload.username,
         password_hash=hash_password(payload.password, settings),
-        role="admin" if db.scalar(select(func.count()).select_from(User)) == 0 else "analyst",
         last_login_at=datetime.now(UTC),
     )
     db.add(user)
@@ -108,7 +106,6 @@ def register(
     return TokenPayload(
         user_id=user.id,
         username=user.display_name,
-        role=user.role,
         access_token=access,
         refresh_token=refresh,
     )
@@ -149,7 +146,6 @@ def login(
     return TokenPayload(
         user_id=user.id,
         username=user.display_name,
-        role=user.role,
         access_token=access,
         refresh_token=refresh,
     )

@@ -12,12 +12,12 @@ from __future__ import annotations
 
 import io
 import json
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import quote
 
 import pandas as pd
-from fastapi import APIRouter, Depends, File, Query, Response, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, Query, Response, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings, get_settings
@@ -26,7 +26,7 @@ from app.core.errors import AppError
 from app.db.models import Dataset, User
 from app.db.session import get_db
 from app.pipeline.fielddict import FieldDictionary
-from app.pipeline.reference import ReferenceRanges
+from app.pipeline.rules import rejudge_metrics
 from app.schemas.dataset import (
     ChartRequest,
     ConfirmMappingRequest,
@@ -35,8 +35,10 @@ from app.schemas.dataset import (
     RenameRequest,
 )
 from app.services import datasets as svc
+from app.services import ranges_service
 from app.services.chart import box_chart, corr_chart, hist_chart, scatter_chart
-from app.services.loader import load_fields, load_reference_ranges
+from app.services.loader import load_fields
+from app.services.pipeline_runner import rejudge as rejudge_pipeline
 from app.services.pipeline_runner import run_pipeline
 
 router = APIRouter(prefix="/datasets", tags=["datasets"])
@@ -58,13 +60,29 @@ def _dataset_payload(dataset: Dataset) -> dict[str, Any]:
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_dataset(
     file: UploadFile = File(...),  # noqa: B008
+    unified_ranges: bool = Form(False),  # noqa: B008
     db: Session = Depends(get_db),  # noqa: B008
     user: User = Depends(get_current_user),  # noqa: B008
     settings: Settings = Depends(get_settings),  # noqa: B008
 ) -> dict[str, Any]:
-    """上传即跑完 S1–S7（9.1），用户只需要看到结果。"""
+    """上传即跑完 S1–S7（9.1），用户只需要看到结果。
+
+    ``unified_ranges=true`` 是上传页的**显式勾选**（FR-16 唯一例外）：数据本身没有
+    gender 列时，用户主动声明"按统一区间判定"，否则依赖性别区间的指标一律判 NA（BR-17）。
+    """
     data = await file.read()
-    dataset = svc.save_upload(db, user, file.filename or "dataset.csv", data, settings=settings)
+    eff = ranges_service.effective(db, user)
+    dataset = svc.save_upload(
+        db,
+        user,
+        file.filename or "dataset.csv",
+        data,
+        settings=settings,
+        unified_ranges=unified_ranges,
+        ranges=eff.ranges,
+        ri_source=eff.source,
+        ri_kind=eff.kind,
+    )
     return {
         "dataset": _dataset_payload(dataset),
         "mapping": dataset.mapping,
@@ -138,18 +156,24 @@ def confirm_mapping(
     payload: ConfirmMappingRequest,
     dataset: Dataset = Depends(get_owned_dataset),  # noqa: B008
     db: Session = Depends(get_db),  # noqa: B008
+    user: User = Depends(get_current_user),  # noqa: B008
     settings: Settings = Depends(get_settings),  # noqa: B008
 ) -> dict[str, Any]:
     """用户手工确认映射后**重跑整条管线**：不清洗就得不到正确结论，不能只改映射。"""
     raw_path = settings.raw_dir / f"{dataset.id}.csv"
     if not raw_path.exists():
         raise AppError(40401, detail="原始文件已丢失，请重新上传")
+    eff = ranges_service.effective(db, user)
     output = run_pipeline(
         raw_path,
         dataset_id=dataset.id,
         settings=settings,
         forced_units=payload.forced_units,
         confirmed_mapping=payload.mapping,
+        unified_ranges=bool(dataset.unified_ranges),
+        ranges=eff.ranges,
+        ri_source=eff.source,
+        ri_kind=eff.kind,
     )
     dataset.mapping = output.mapping
     dataset.quality = output.quality
@@ -160,6 +184,9 @@ def confirm_mapping(
     dataset.rows = output.rows
     dataset.columns = output.columns
     dataset.ri_version = output.ri_version
+    dataset.ri_source = output.ri_source
+    dataset.ranges_snapshot = output.ranges_snapshot
+    dataset.judged_at = datetime.now(UTC)
     dataset.status = "cleaned"
     db.commit()
     return {"ok": True, "dataset": _dataset_payload(dataset), "mapping": dataset.mapping}
@@ -247,10 +274,6 @@ def run_clean(
 # --------------------------------------------------------------------------- 统计 / 图表 / 状态
 
 
-def _ranges() -> ReferenceRanges:
-    return load_reference_ranges()
-
-
 def _fields() -> FieldDictionary:
     return load_fields()
 
@@ -272,18 +295,35 @@ def chart(
     kind: str,
     payload: ChartRequest,
     dataset: Dataset = Depends(get_owned_dataset),  # noqa: B008
+    db: Session = Depends(get_db),  # noqa: B008
+    user: User = Depends(get_current_user),  # noqa: B008
     settings: Settings = Depends(get_settings),  # noqa: B008
 ) -> dict[str, Any]:
     if kind not in CHART_KINDS:
         raise AppError(42201, detail=f"不支持的图表类型 {kind}")
     fields = _fields()
-    ranges = _ranges()
+
+    # 三层区间：临时 > 我的 > 默认（3.5.1）。临时层只在这次请求里活，不落库（FR-37）
+    eff = ranges_service.effective(db, user)
+    trial = bool(payload.temp_ranges)
+    if trial:
+        eff = ranges_service.effective(db, user, temp=payload.temp_ranges)
+    ranges = eff.ranges
+
     frame = svc.stage_frame(dataset, payload.stage)
     long = svc.long_frame(dataset)
+    if trial and payload.metric:
+        # 只重判被拖动的指标：整表重判要 5 s，拖动时期望的是即时反应（NFR-P-12）
+        long = rejudge_metrics(
+            frame, long, ranges, tuple(payload.temp_ranges or {}), unified=bool(dataset.unified_ranges)
+        )
     unit_log = (dataset.clean_report or {}).get("unit_log", [])
+    effective_payload = {"source": eff.source, "digest": eff.digest, "trial": trial, "note": eff.note}
 
     if kind == "corr":
-        return corr_chart(frame, fields, (dataset.stats or {}).get("correlation", {}), settings=settings)
+        result = corr_chart(frame, fields, (dataset.stats or {}).get("correlation", {}), settings=settings)
+        result["ri_effective"] = effective_payload
+        return result
 
     metric = payload.metric
     if not metric:
@@ -292,13 +332,16 @@ def chart(
         raise AppError(42201, detail=f"未知指标 {metric}")
 
     if kind == "box":
-        return box_chart(frame, long, fields, ranges, metric, settings=settings, unit_log=unit_log)
-    if kind == "hist":
-        return hist_chart(
+        result = box_chart(frame, long, fields, ranges, metric, settings=settings, unit_log=unit_log)
+    elif kind == "hist":
+        result = hist_chart(
             frame, long, fields, ranges, metric, settings=settings, bins=payload.bins, unit_log=unit_log
         )
-    y_metric = payload.metric_y or _default_partner(metric)
-    return scatter_chart(frame, fields, metric, y_metric, settings=settings)
+    else:
+        y_metric = payload.metric_y or _default_partner(metric)
+        result = scatter_chart(frame, fields, metric, y_metric, settings=settings)
+    result["ri_effective"] = effective_payload
+    return result
 
 
 def _default_partner(metric: str) -> str:
@@ -436,6 +479,85 @@ def _num(value: Any) -> float | None:
         return round(float(value), 4)
     except (TypeError, ValueError):
         return None
+
+
+# --------------------------------------------------------------------------- 区间与重判
+
+
+@router.get("/{dataset_id}/ranges-snapshot")
+def ranges_snapshot(
+    dataset: Dataset = Depends(get_owned_dataset),  # noqa: B008
+    db: Session = Depends(get_db),  # noqa: B008
+    user: User = Depends(get_current_user),  # noqa: B008
+) -> dict[str, Any]:
+    """这份数据集的判定用的是哪份区间、现在是否已经"陈旧"（BR-18/BR-20）。
+
+    ``stale=True`` 的含义很具体：**你后来改过我的区间，但这份数据还没按新标准重判**。
+    界面必须让人看见这件事，否则"我明明把 HGB 下限改成 120 了，图怎么没变"会变成
+    一个只能靠记忆回答的问题（RK-28）。
+    """
+    # unified 数据集判的是**默认表**（它没有性别信息，也就不该被"我的区间"改写），
+    # 所以"当前生效口径"必须按数据集自己的口径算——否则每建一个统一口径数据集，
+    # 界面上就会永远亮着一条"陈旧"横幅，而那只是把两种口径混在一起比了个 digest。
+    current = ranges_service.default_effective() if dataset.unified_ranges else ranges_service.effective(db, user)
+    snapshot = dataset.ranges_snapshot or ranges_service.read_snapshot(dataset.id) or {}
+    judged_digest = snapshot.get("digest")
+    has_snapshot = bool(snapshot)
+    return {
+        "dataset_id": dataset.id,
+        "ri_version": dataset.ri_version,
+        "ri_source": dataset.ri_source,
+        "judged_at": dataset.judged_at.isoformat() if dataset.judged_at else None,
+        "snapshot": snapshot,
+        "has_snapshot": has_snapshot,
+        "current": {
+            "source": current.source,
+            "digest": current.digest,
+            "version": current.version,
+        },
+        # 没有快照 ≠ 不陈旧：那是"判定时没留证据"，界面必须能分开说这两件事（BR-20）
+        "stale": bool(has_snapshot and judged_digest and judged_digest != current.digest),
+    }
+
+
+@router.post("/{dataset_id}/rejudge")
+def rejudge(
+    dataset: Dataset = Depends(get_owned_dataset),  # noqa: B008
+    db: Session = Depends(get_db),  # noqa: B008
+    user: User = Depends(get_current_user),  # noqa: B008
+    settings: Settings = Depends(get_settings),  # noqa: B008
+) -> dict[str, Any]:
+    """用当前生效的**已保存**区间重放 S6–S7（9.2、BR-19）。
+
+    只重放判定与统计：S1–S5 的产物与 ``sample_index`` 一个字都不动，
+    所以用户开着的图表不会因为一次重判集体错位。
+    """
+    # 统一口径的数据集不参与"我的区间"：它判的是"没有性别信息时的通用值"，
+    # 让个人区间覆盖它会把"用户声明"和"个人口径"两件事搅在一起
+    eff = ranges_service.default_effective() if dataset.unified_ranges else ranges_service.effective(db, user)
+    result = rejudge_pipeline(
+        dataset.id,
+        eff.ranges,
+        ri_source=eff.source,
+        ri_kind=eff.kind,
+        unified_ranges=bool(dataset.unified_ranges),
+        settings=settings,
+        fields=_fields(),
+    )
+    dataset.stats = result["stats"]
+    dataset.anomaly = result["anomaly"]
+    dataset.ri_version = result["ri_version"]
+    dataset.ri_source = result["ri_source"]
+    dataset.ranges_snapshot = result["snapshot"]
+    dataset.judged_at = datetime.now(UTC)
+    db.commit()
+    return {
+        "ok": True,
+        "dataset": _dataset_payload(dataset),
+        "changed": result["changed"],
+        "timings": result["timings"],
+        "ri_source": result["ri_source"],
+    }
 
 
 # --------------------------------------------------------------------------- 筛选 / 异常 / 导出
