@@ -321,9 +321,18 @@ export interface FilterClause {
 }
 
 export interface QueryPayload {
-  rows: Record<string, string | number | null>[];
+  rows: (string | number | null)[][];
+  headers: string[];
   total: number;
   page: number;
   size: number;
-  headers?: string[];
+  /** 与 total 相同，单独给出是为了让"筛选命中数"这个词在接口里有名字 */
+  matched?: number;
+}
+
+export interface FilterState {
+  filters: FilterClause[];
+  gender?: string | null;
+  age_min?: number | null;
+  age_max?: number | null;
 }

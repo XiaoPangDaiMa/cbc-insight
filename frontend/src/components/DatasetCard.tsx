@@ -18,7 +18,7 @@ export function DatasetCard({
 }) {
   return (
     <div
-      className="card flex flex-col gap-2 p-4"
+      className="card lift flex flex-col gap-2 p-4"
       style={{
         borderColor: active ? "var(--color-brand)" : "var(--color-border)",
         boxShadow: active ? "0 0 0 1px var(--color-brand)" : "none",

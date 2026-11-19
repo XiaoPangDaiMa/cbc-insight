@@ -12,6 +12,7 @@ import type {
   CleanReportPayload,
   DatasetPayload,
   ExportPreviewPayload,
+  FilterState,
   MetricStatusPayload,
   MyRangesPayload,
   QueryPayload,
@@ -26,6 +27,38 @@ import type {
   WorkspacePayload,
 } from "./types";
 
+/**
+ * 导出链接的公共参数。
+ *
+ * `filters` 走 JSON 字符串，是因为导出必须是 GET（浏览器要能直接下载）；
+ * 条件用 POST 提交就只能 fetch+blob，文件名的中文会经过一次 JS 兜底，更容易出错。
+ */
+export interface ExportOptions {
+  scope?: "all" | "filtered";
+  stage?: "raw" | "cleaned";
+  filters?: FilterState["filters"];
+  gender?: string | null;
+  ageMin?: number | null;
+  ageMax?: number | null;
+  onlyAbnormal?: boolean;
+}
+
+/** 拼 `/export/...?kind=` 的查询串；预览与下载共用，参数顺序固定（T-29）。 */
+export function exportQuery(kind: string, opts: ExportOptions = {}): string {
+  const params = new URLSearchParams({ kind, scope: opts.scope ?? "all", stage: opts.stage ?? "cleaned" });
+  if (opts.filters && opts.filters.length > 0) params.set("filters", JSON.stringify(opts.filters));
+  if (opts.gender) params.set("gender", opts.gender);
+  if (opts.ageMin !== null && opts.ageMin !== undefined) params.set("age_min", String(opts.ageMin));
+  if (opts.ageMax !== null && opts.ageMax !== undefined) params.set("age_max", String(opts.ageMax));
+  if (opts.onlyAbnormal) params.set("only_abnormal", "true");
+  return params.toString();
+}
+
+/** 下载地址：与预览走同一套参数，避免"看到 5 行、下到 94 行"（RK-19）。 */
+export function exportPath(datasetId: string, kind: string, opts: ExportOptions = {}): string {
+  return `/datasets/${datasetId}/export/${kind}?${exportQuery(kind, opts)}`;
+}
+
 export const keys = {
   me: ["me"] as const,
   workspace: ["workspace"] as const,
@@ -37,7 +70,7 @@ export const keys = {
   anomaly: (id: string) => ["anomaly", id] as const,
   chart: (id: string, kind: string, metric: string) => ["chart", id, kind, metric] as const,
   profile: (id: string, index: number) => ["profile", id, index] as const,
-  exportPreview: (id: string, kind: string) => ["export-preview", id, kind] as const,
+  exportPreview: (id: string, kind: string, opts = "") => ["export-preview", id, kind, opts] as const,
   myRanges: ["my-ranges"] as const,
   rangeVersions: ["my-ranges", "versions"] as const,
   rangesSnapshot: (id: string) => ["ranges-snapshot", id] as const,
@@ -86,8 +119,8 @@ export const api = {
     request<SampleProfilePayload>(`/datasets/${id}/samples/${index}/profile`),
   query: (id: string, body: Record<string, unknown>) =>
     request<QueryPayload>(`/datasets/${id}/query`, { method: "POST", body }),
-  exportPreview: (id: string, kind: string, scope = "all") =>
-    request<ExportPreviewPayload>(`/datasets/${id}/export/preview?kind=${kind}&scope=${scope}`),
+  exportPreview: (id: string, kind: string, opts: ExportOptions = {}) =>
+    request<ExportPreviewPayload>(`/datasets/${id}/export/preview?${exportQuery(kind, opts)}`),
 
   // 三层区间（3.5.1）：默认只读，用户那份整份保存，临时那份只在图表请求里
   myRanges: () => request<MyRangesPayload>("/me/reference-ranges"),

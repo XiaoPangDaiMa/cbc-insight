@@ -53,3 +53,29 @@ export function genderLabel(gender: string | null | undefined): string {
   if (gender === "female") return "女";
   return EM_DASH;
 }
+
+/** 模式编码 → 中文（5.1 表）。
+ *
+ * 措辞全部是"倾向 / 偏低"这类描述性说法，**不出现病名**：系统只报告"哪些指标超出
+ * 参考区间、组合起来像哪种模式"，不做诊断（1.3 范围外第一条）。
+ * 未收录的编码原样显示，方便发现新增模式没同步翻译。
+ */
+const PATTERN_TEXT: Record<string, string> = {
+  NORMAL: "未见指标超出参考区间",
+  ANEMIA: "血红蛋白偏低（倾向）",
+  MICRO: "红细胞偏小",
+  MICRO_HYPO: "红细胞偏小且血红蛋白偏低（倾向）",
+  MACRO: "红细胞偏大",
+  POLYCYTHEMIA_SUSPECT: "血红蛋白偏高",
+  THROMBOCYTOPENIA: "血小板偏低",
+  THROMBOCYTOSIS: "血小板偏高",
+  LEUKOCYTOSIS: "白细胞偏高",
+  LEUKOPENIA: "白细胞偏低",
+  MULTI_ABNORMAL: "多项指标超出参考区间",
+  UNCLASSIFIED: "其他异常组合",
+};
+
+export function patternLabel(pattern: string | null | undefined): string {
+  if (!pattern) return EM_DASH;
+  return PATTERN_TEXT[pattern] ?? pattern;
+}

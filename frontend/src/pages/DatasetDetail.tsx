@@ -3,13 +3,15 @@ import { useParams, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 
 import { api, keys } from "@/api/hooks";
-import { download, saveBlob } from "@/api/client";
+import { AnomalyPanel } from "@/components/AnomalyPanel";
 import { EChart } from "@/components/EChart";
+import { FilterPanel } from "@/components/FilterPanel";
 import { MetricCard } from "@/components/MetricCard";
 import { RangesPanel } from "@/components/RangesPanel";
 import { SampleProfile } from "@/components/SampleProfile";
-import { EmptyState, ErrorNotice } from "@/components/EmptyState";
-import { fmtPct, fmtPercentValue } from "@/lib/format";
+import { ErrorNotice } from "@/components/EmptyState";
+import { fmtPercentValue } from "@/lib/format";
+import { ExportButton, useExport } from "@/lib/useExport";
 
 type Tab = "analysis" | "ranges" | "filter" | "anomaly" | "quality";
 
@@ -20,60 +22,6 @@ const TABS: { key: Tab; label: string }[] = [
   { key: "anomaly", label: "异常" },
   { key: "quality", label: "数据详情" },
 ];
-
-/** 下载/打开导出文件：都走带令牌的 download 通道，文件名从 Content-Disposition 取。 */
-function useExport() {
-  const [busy, setBusy] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  async function run(path: string, mode: "save" | "open" = "save") {
-    setBusy(path);
-    setError(null);
-    try {
-      const { blob, filename } = await download(path);
-      if (mode === "open") {
-        const url = URL.createObjectURL(blob);
-        window.open(url, "_blank", "noopener");
-        // 给新标签页留出读取时间再回收，否则 Safari/Firefox 会先崩掉
-        window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
-      } else {
-        saveBlob(blob, filename);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "导出失败");
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  return { busy, error, run };
-}
-
-function ExportButton({
-  label,
-  path,
-  mode = "save",
-  busy,
-  run,
-}: {
-  label: string;
-  path: string;
-  mode?: "save" | "open";
-  busy: string | null;
-  run: (path: string, mode?: "save" | "open") => Promise<void>;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={() => void run(path, mode)}
-      disabled={busy !== null}
-      className="rounded border px-2 py-[2px] text-[11px] disabled:opacity-50"
-      style={{ borderColor: "var(--color-border)", color: "var(--color-text-secondary)" }}
-    >
-      {busy === path ? "…" : label}
-    </button>
-  );
-}
 
 /** 数据集详情：四个 tab。分析页的区块顺序固定（4.3.3），质量图不放在本 tab。 */
 export function DatasetDetail() {
@@ -120,11 +68,6 @@ export function DatasetDetail() {
     queryKey: keys.profile(datasetId, sampleIndex ?? -1),
     queryFn: () => api.profile(datasetId, sampleIndex!),
     enabled: sampleIndex !== null,
-  });
-  const anomaly = useQuery({
-    queryKey: keys.anomaly(datasetId),
-    queryFn: () => api.anomaly(datasetId),
-    enabled: Boolean(datasetId) && tab === "anomaly",
   });
   const cleanReport = useQuery({
     queryKey: keys.cleanReport(datasetId),
@@ -304,41 +247,9 @@ export function DatasetDetail() {
         </div>
       )}
 
-      {tab === "filter" && (
-        <EmptyState
-          title="筛选（M3 交付）"
-          description="按年龄、性别与指标阈值筛选样本，结果与导出共用同一套列定义。当前版本先交付分析页。"
-        />
-      )}
+      {tab === "filter" && <FilterPanel datasetId={datasetId} metrics={status.data?.metrics ?? []} />}
 
-      {tab === "anomaly" && (
-        <section className="card p-3">
-          {anomaly.error && <ErrorNotice error={anomaly.error} />}
-          {anomaly.data && (
-            <>
-              <h2 className="text-[13px] font-medium" style={{ color: "var(--color-text-secondary)" }}>
-                异常与模式分布
-              </h2>
-              <p className="mt-1 text-[12px]" style={{ color: "var(--color-text-primary)" }}>
-                {anomaly.data.abnormal_samples} / {anomaly.data.samples} 个样本至少有一项超出参考区间（
-                {fmtPct(anomaly.data.anomaly_rate)}），共 {anomaly.data.abnormal_items} 个异常项。
-              </p>
-              <ul className="mt-2 grid gap-1 text-[12px] sm:grid-cols-2 lg:grid-cols-3">
-                {Object.entries(anomaly.data.pattern_counts).map(([pattern, count]) => (
-                  <li
-                    key={pattern}
-                    className="flex justify-between rounded px-2 py-1"
-                    style={{ backgroundColor: "var(--color-bg-subtle)" }}
-                  >
-                    <span style={{ color: "var(--color-text-secondary)" }}>{pattern}</span>
-                    <span style={{ color: "var(--color-text-primary)" }}>{count}</span>
-                  </li>
-                ))}
-              </ul>
-            </>
-          )}
-        </section>
-      )}
+      {tab === "anomaly" && <AnomalyPanel datasetId={datasetId} />}
 
       {tab === "quality" && (
         <section className="card p-3">

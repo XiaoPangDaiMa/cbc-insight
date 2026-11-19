@@ -44,3 +44,43 @@ body {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
 }
+
+/* 卡片"轻抬"：只动位移、投影与描边，**不动语义色**（BR-14 的三态颜色在任何
+   交互状态下都必须保持原样，否则"偏高"在悬停时看起来就像另一个状态了）。
+   刻意不作用于图表容器：图表里每一像素都是数据，容器一动就变成了"读不准的图"。 */
+.lift {
+  transition:
+    transform 160ms ease,
+    box-shadow 160ms ease,
+    border-color 160ms ease;
+}
+
+.lift:hover {
+  transform: translateY(-2px);
+  border-color: var(--color-border-strong);
+  box-shadow: 0 8px 20px -12px color-mix(in srgb, var(--color-text-primary) 45%, transparent);
+}
+
+.lift:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 6px -4px color-mix(in srgb, var(--color-text-primary) 40%, transparent);
+}
+
+.lift:focus-visible {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 2px;
+}
+
+/* 表格行悬停：只换底色，不改字色——行里那几个三态数字仍然保持语义色 */
+.row-hover tbody tr:hover {
+  background-color: var(--color-brand-soft);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lift,
+  .lift:hover,
+  .lift:active {
+    transition: none;
+    transform: none;
+  }
+}

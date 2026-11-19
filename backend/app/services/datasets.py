@@ -168,6 +168,38 @@ def apply_filters(frame: pd.DataFrame, filters: list[FilterClause] | None) -> pd
     return result
 
 
+def select_frame(
+    dataset: Dataset,
+    *,
+    stage: str = "cleaned",
+    filters: list[FilterClause] | None = None,
+    gender: str | None = None,
+    age_min: float | None = None,
+    age_max: float | None = None,
+) -> pd.DataFrame:
+    """把「阶段 + 指标条件 + 性别 + 年龄」合成一张表（FR-14）。
+
+    **筛选、预览、导出必须走同一段逻辑**：如果这里和 ``/query`` 各写一份，
+    用户看到的行数与导出的行数迟早会对不上，而且两边看起来都"合理"（RK-19 的同类风险）。
+    """
+    frame = stage_frame(dataset, stage)
+    frame = apply_filters(frame, filters)
+
+    if gender:
+        if "gender" not in frame.columns:
+            return frame.iloc[0:0]
+        frame = frame.loc[frame["gender"].astype("string").str.lower() == gender.lower()]
+
+    if "age" in frame.columns and (age_min is not None or age_max is not None):
+        ages = pd.to_numeric(frame["age"], errors="coerce")
+        if age_min is not None:
+            frame = frame.loc[ages >= age_min]
+            ages = ages.loc[frame.index]
+        if age_max is not None:
+            frame = frame.loc[ages <= age_max]
+    return frame
+
+
 def stage_frame(dataset: Dataset, stage: str = "cleaned") -> pd.DataFrame:
     """取某一阶段的宽表（图表与导出共用，保证同源）。
 
@@ -204,6 +236,10 @@ def build_export_frame(
     *,
     stage: str = "cleaned",
     filters: list[FilterClause] | None = None,
+    gender: str | None = None,
+    age_min: float | None = None,
+    age_max: float | None = None,
+    only_abnormal: bool = False,
 ) -> tuple[pd.DataFrame, str]:
     """**导出预览与下载共用这一个函数**（NFR-M-06、RK-19、T-29）。
 
@@ -212,16 +248,22 @@ def build_export_frame(
     if kind not in KIND_LABELS:
         raise AppError(42201, detail=f"未知导出类型 {kind}")
 
+    scope = {"gender": gender, "age_min": age_min, "age_max": age_max}
     if kind == "items":
         long = long_frame(dataset)
-        if filters:
-            keep = set(apply_filters(stage_frame(dataset, stage), filters)["sample_index"])
-            long = long.loc[long["sample_index"].isin(keep)]
-        frame = long.copy()
+        keep = set(select_frame(dataset, stage=stage, filters=filters, **scope)["sample_index"])
+        frame = long.loc[long["sample_index"].isin(keep)].copy()
     elif kind == "summary":
         frame = summary_frame(dataset).copy()
+        # 排序即"异常清单"的默认顺序：异常项多的在前，同样多时偏离大的在前（FR-18）
+        if {"n_abnormal", "severity"} <= set(frame.columns):
+            frame = frame.sort_values(["n_abnormal", "severity"], ascending=[False, False], kind="stable")
+        if only_abnormal and "n_abnormal" in frame.columns:
+            frame = frame.loc[pd.to_numeric(frame["n_abnormal"], errors="coerce").fillna(0) > 0]
+        keep = set(select_frame(dataset, stage=stage, filters=filters, **scope)["sample_index"])
+        frame = frame.loc[frame["sample_index"].isin(keep)]
     elif kind == "filtered":
-        frame = apply_filters(stage_frame(dataset, stage), filters).copy()
+        frame = select_frame(dataset, stage=stage, filters=filters, **scope).copy()
     else:  # stats
         frame = pd.DataFrame(dataset.stats.get("overview") or [])
 
@@ -253,6 +295,7 @@ COLUMN_LABELS: dict[str, str] = {
     "abnormal_metrics": "异常指标",
     "na_metrics": "未判定指标",
     "gender_missing": "性别缺失",
+    "ri_unified": "统一口径判定",
     "n": "样本数",
     "missing": "缺失数",
     "mean": "均值",

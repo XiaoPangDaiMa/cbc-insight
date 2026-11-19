@@ -27,7 +27,7 @@ export function MetricCard({
     <button
       type="button"
       onClick={onClick}
-      className="card w-full p-3 text-left transition"
+      className="card lift w-full cursor-pointer p-3 text-left"
       style={{
         borderColor: active ? "var(--color-brand)" : "var(--color-border)",
         boxShadow: active ? "0 0 0 1px var(--color-brand)" : "none",

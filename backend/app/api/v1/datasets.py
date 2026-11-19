@@ -568,14 +568,14 @@ def query(
     payload: QueryRequest,
     dataset: Dataset = Depends(get_owned_dataset),  # noqa: B008
 ) -> dict[str, Any]:
-    frame = svc.stage_frame(dataset, payload.stage)
-    frame = svc.apply_filters(frame, payload.filters)
-    if payload.gender:
-        frame = frame.loc[frame["gender"] == payload.gender]
-    if payload.age_min is not None and "age" in frame.columns:
-        frame = frame.loc[pd.to_numeric(frame["age"], errors="coerce") >= payload.age_min]
-    if payload.age_max is not None and "age" in frame.columns:
-        frame = frame.loc[pd.to_numeric(frame["age"], errors="coerce") <= payload.age_max]
+    frame = svc.select_frame(
+        dataset,
+        stage=payload.stage,
+        filters=payload.filters,
+        gender=payload.gender,
+        age_min=payload.age_min,
+        age_max=payload.age_max,
+    )
     total = int(len(frame))
     start = (payload.page - 1) * payload.size
     chunk = frame.iloc[start : start + payload.size]
@@ -585,6 +585,7 @@ def query(
         "total": total,
         "page": payload.page,
         "size": payload.size,
+        "matched": total,
     }
 
 
@@ -619,16 +620,59 @@ def _export_headers(kind: str) -> tuple[str, str]:
     return kind, svc.KIND_LABELS[kind]
 
 
+def _parse_filters(raw: str | None) -> list[FilterClause]:
+    """把 URL 里的 ``filters`` 解析成条件列表（GET 导出也要能带筛选，8.1）。
+
+    非法 JSON 一律 42201：这里宁可报错也不能"忽略掉看不懂的条件"把全量数据导出去，
+    用户会以为拿到的是筛选结果。
+    """
+    if not raw:
+        return []
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:  # noqa: TRY003
+        raise AppError(42201, detail="filters 不是合法 JSON") from exc
+    if not isinstance(data, list):
+        raise AppError(42201, detail="filters 必须是数组")
+    try:
+        return [FilterClause(**item) for item in data]
+    except Exception as exc:  # pydantic ValidationError 也走 42201
+        raise AppError(42201, detail=f"筛选条件不合法：{exc}") from exc
+
+
+def _export_options(
+    filters: str | None,
+    gender: str | None,
+    age_min: float | None,
+    age_max: float | None,
+    only_abnormal: bool,
+) -> dict[str, Any]:
+    return {
+        "filters": _parse_filters(filters),
+        "gender": gender,
+        "age_min": age_min,
+        "age_max": age_max,
+        "only_abnormal": only_abnormal,
+    }
+
+
 @router.get("/{dataset_id}/export/preview")
 def export_preview(
     kind: str,
     scope: str = Query("all", pattern="^(all|filtered)$"),
     stage: str = Query("cleaned", pattern="^(raw|cleaned)$"),
+    filters: str | None = Query(None, description="JSON 数组，与 POST /query 的 filters 同构"),
+    gender: str | None = None,
+    age_min: float | None = None,
+    age_max: float | None = None,
+    only_abnormal: bool = False,
     dataset: Dataset = Depends(get_owned_dataset),  # noqa: B008
 ) -> dict[str, Any]:
     """预览只读，不造数据：列名/顺序/数量必须与下载完全一致（T-29）。"""
     _export_headers(kind)
-    frame, stem = svc.build_export_frame(dataset, kind, stage=stage)
+    frame, stem = svc.build_export_frame(
+        dataset, kind, stage=stage, **_export_options(filters, gender, age_min, age_max, only_abnormal)
+    )
     total = int(len(frame))
     rows = [[_cell(v) for v in row] for row in frame.head(20).itertuples(index=False)]
     return {
@@ -645,6 +689,11 @@ def export(
     kind: str,
     scope: str = Query("all", pattern="^(all|filtered)$"),
     stage: str = Query("cleaned", pattern="^(raw|cleaned)$"),
+    filters: str | None = Query(None, description="JSON 数组，与 POST /query 的 filters 同构"),
+    gender: str | None = None,
+    age_min: float | None = None,
+    age_max: float | None = None,
+    only_abnormal: bool = False,
     dataset: Dataset = Depends(get_owned_dataset),  # noqa: B008
 ) -> Response:
     """导出 CSV：UTF-8 with BOM、``\\r\\n``、``index=False``（NFR-C-03、8.2）。
@@ -653,7 +702,9 @@ def export(
     但预览端与前端"最近一次导出"记录需要这份元信息，否则无从复现）。
     """
     _export_headers(kind)
-    frame, stem = svc.build_export_frame(dataset, kind, stage=stage)
+    frame, stem = svc.build_export_frame(
+        dataset, kind, stage=stage, **_export_options(filters, gender, age_min, age_max, only_abnormal)
+    )
     if frame.empty:
         raise AppError(42201, detail="当前条件下没有任何记录，未生成文件")
     buffer = io.StringIO()
