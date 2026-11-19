@@ -1,0 +1,43 @@
+# 图表结论模板（SRS FR-32 / BR-16）
+# 落地方式：模板 + 槽位填充，禁止用大模型即时生成（C-04 离线约束）。
+# 每个模板对应一个"前提分支"，由 app/pipeline/captions.py 选择，选择逻辑写死在代码里，
+# 文案写在这里，便于逐字审校（4.4.6 的禁用词表也在本文件）。
+#
+# 硬约束（BR-16）：
+#   1. 任一组 n < 10 → 走 small_n 分支，不输出 p 值
+#   2. p >= 0.05     → 文案含"差异无统计学意义"，不得出现"显著"
+#   3. |rho| < 0.3   → 走 weak 分支，"不作解读"
+#   4. 缺 gender     → 走 no_gender 分支，全文不提"男女"
+#   5. 单位被归一过  → 走带换算提示的分支
+version: "2026.11.1"
+max_chars: 60
+
+# 4.4.6 禁用词：出现即视为实现不合格（4.4.6「禁用词」行）
+# 注意："倾向"、"SUSPECT" 是 5.1 模式名自带的，不在禁用列表内。
+forbidden_words: [显著, 明显, 提示, 可能, 建议, 诊断, 疑似疾病, 疑似]
+
+box:
+  grouped:      "女性{cn}均值 {female_mean}{unit}，比男性{dir_word} {abs_diff}{unit}（男 n={n_male} / 女 n={n_female}），p = {p_text}"
+  grouped_ns:   "女性{cn}均值 {female_mean}{unit}，男性 {male_mean}{unit}，差异无统计学意义（男 n={n_male} / 女 n={n_female}，p = {p_text}）"
+  small_n:      "未做组间检验（{small_group} n = {n_small} < 10）；{cn} 男 {male_mean}{unit} / 女 {female_mean}{unit}"
+  no_gender:    "{cn}中位数 {median}{unit}，n = {n}（数据未含性别，未按性别分组）"
+  no_data:      "样本不足，未出图（有效样本 n = {n} < 5）"
+  unit_noted:   "；{metric} 原单位 {orig_unit} 已按 ×10 归一"
+
+hist:
+  main:         "{cn}中位数 {median}{unit}，{pct_normal}% 落在 {low}–{high} {unit} 区间内（n = {n}）"
+  main_gender:  "{cn}中位数 {median}{unit}，按性别各自参考区间判定，{pct_normal}% 在区间内（n = {n}）；参考区间：{bands}"
+  small_n:      "样本不足，未出图（有效样本 n = {n} < 5）"
+  no_data:      "{cn}无有效数据（n = 0）"
+  unit_noted:   "；{metric} 原单位 {orig_unit} 已按 ×10 归一"
+
+corr:
+  coupled:      "{a} 与 {b} 的 ρ = {rho}（数学耦合，非独立发现）"
+  strong:       "{a} 与 {b} 的 ρ = {rho}（n = {n}）"
+  weak:         "{a} 与 {b} 的 ρ = {rho}，相关性弱，不作解读"
+  insufficient: "可参与相关的指标不足 2 个（当前 {n} 个），未出图"
+
+# 数据健康度摘要（4.2.0 约定 2 的"数据健康度"那句话）
+health_summary:
+  with_issues:  "{n} 行；剔除 {dup} 行重复；置空 {nulled} 个越界值{unit_note}"
+  no_issues:    "{n} 行；未发现需要处理的脏数据"

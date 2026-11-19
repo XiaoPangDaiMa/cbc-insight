@@ -1,0 +1,35 @@
+# 字段映射表（SRS 3.3「常见别名」列的可执行形式）
+# 匹配顺序（3.3 字段映射规则）：
+#   1. 标准名全等         → confidence 1.00
+#   2. 别名表匹配         → confidence 0.95（大小写不敏感，去除空格/下划线/全角括号）
+#   3. 相似度 ≥ 0.75      → confidence = 相似度，进入"待确认"，阻塞上传（FR-02）
+#   4. 都不中             → 未识别，用户可忽略
+# 用户确认结果回写本文件后，同名文件下次自动复用（3.3 规则 4）。
+
+aliases:
+  age:       [Age, 年龄, 年龄区间, age_years, AGE]
+  gender:    [Gender, Sex, 性别, sex, SEX, "M/F", "男/女", gender_code]
+  wbc:       [White_Blood_Cells, WBC, 白细胞, white blood cells, WBC_count, 白细胞计数]
+  rbc:       [Red_Blood_Cells, RBC, 红细胞, red blood cells, RBC_count, 红细胞计数]
+  hgb:       [Hemoglobin, HGB, Hb, 血红蛋白, HGB_g/L, hemoglobin]
+  hct:       [HCT, Hematocrit, 红细胞压积, PCV, 血细胞比容]
+  mcv:       [MCV, 平均红细胞体积, mean corpuscular volume]
+  mch:       [MCH, 平均红细胞血红蛋白量, mean corpuscular hemoglobin]
+  mchc:      [MCHC, 平均红细胞血红蛋白浓度, mean corpuscular hemoglobin concentration]
+  rdw:       [RDW, RDW_CV, 红细胞分布宽度, rdw_cv, RDW-SD]
+  plt:       [Platelet_Count, PLT, 血小板, platelets, 血小板计数, PLT_count]
+  mpv:       [MPV, 平均血小板体积, mean platelet volume]
+  neut_pct:  [NE%, NEUT%, 中性粒细胞百分比, NEUT_pct, Neutrophil]
+  lymph_pct: [LY%, LYMPH%, 淋巴细胞百分比, LYMPH_pct, Lymphocyte]
+  mono_pct:  [MO%, MONO%, 单核细胞百分比, MONO_pct, Monocyte]
+  eo_pct:    [EO%, EOS%, 嗜酸性粒细胞百分比, EO_pct, Eosinophil]
+  baso_pct:  [BA%, BASO%, 嗜碱性粒细胞百分比, BA_pct, Basophil]
+
+# 性别取值映射（3.3：male / female / unknown；常见 M/F、男/女、1/2）
+gender_values:
+  male:    [male, m, 男, 1, boy, M, Male]
+  female:  [female, f, 女, 2, girl, F, Female]
+  unknown: [unknown, u, 未知, "", "NA", null]
+
+# 年龄区间字符串（3.3 提及 "20-30" 这种写法）
+age_range_pattern: '^\s*(\d+)\s*[-–~至]\s*(\d+)\s*$'

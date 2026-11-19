@@ -1,0 +1,79 @@
+{
+  "color": [
+    "#0072B2",
+    "#D55E00",
+    "#009E73",
+    "#CC79A7",
+    "#E69F00",
+    "#56B4E9",
+    "#F0E442",
+    "#000000"
+  ],
+  "backgroundColor": "transparent",
+  "textStyle": {
+    "fontFamily": "\"Inter\", \"PingFang SC\", \"Microsoft YaHei\", \"Noto Sans CJK SC\", system-ui, sans-serif",
+    "color": "#475569",
+    "fontSize": 12
+  },
+  "title": {
+    "textStyle": {
+      "color": "#0F172A",
+      "fontWeight": 600
+    }
+  },
+  "legend": {
+    "textStyle": {
+      "color": "#475569"
+    }
+  },
+  "grid": {
+    "borderColor": "#F1F5F9"
+  },
+  "categoryAxis": {
+    "axisLine": {
+      "lineStyle": {
+        "color": "#E2E8F0"
+      }
+    },
+    "axisTick": {
+      "show": false
+    },
+    "axisLabel": {
+      "color": "#475569"
+    },
+    "splitLine": {
+      "show": false
+    }
+  },
+  "valueAxis": {
+    "axisLine": {
+      "show": false
+    },
+    "axisTick": {
+      "show": false
+    },
+    "axisLabel": {
+      "color": "#475569"
+    },
+    "splitLine": {
+      "lineStyle": {
+        "color": "#F1F5F9"
+      }
+    }
+  },
+  "tooltip": {
+    "backgroundColor": "#FFFFFF",
+    "borderColor": "#E2E8F0",
+    "textStyle": {
+      "color": "#0F172A",
+      "fontSize": 12
+    }
+  },
+  "cbcStatus": {
+    "low": "#2563EB",
+    "normal": "#16A34A",
+    "high": "#DC2626",
+    "na": "#6B7280",
+    "refband": "#E0F2FE"
+  }
+}

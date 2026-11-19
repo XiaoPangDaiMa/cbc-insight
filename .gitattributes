@@ -1,0 +1,22 @@
+# 统一换行符：避免 Windows 上提交、Linux CI 上校验时整文件 diff
+* text=auto eol=lf
+
+# Windows 脚本必须保留 CRLF，否则 cmd/PowerShell 5.1 解析可能出问题
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# CSV 夹具用 CRLF，Excel 打开更稳
+*.csv text eol=crlf
+
+# 二进制，不做任何换行转换
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.pdf binary
+*.parquet binary
+*.db binary
+
+# 锁文件在 diff 里噪音大，但不该被隐藏——评审时要看依赖是否真的变了
+pnpm-lock.yaml linguist-generated=true

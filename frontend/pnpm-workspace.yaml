@@ -1,0 +1,7 @@
+# pnpm 12 起，构建脚本白名单只能写在这里（package.json 里的 pnpm 字段已不再读取）。
+# esbuild 的 postinstall 必须放行，否则 vite / vitest 无法启动。
+# 注意：allowBuilds 的值必须是 true/false。之前这里被写成占位文本
+# "set this to true or false"，pnpm 就认为"未允许"，以 ERR_PNPM_IGNORED_BUILDS 退出（exit 1），
+# 本地看着还能跑，但 CI 会直接变红。
+allowBuilds:
+  esbuild: true

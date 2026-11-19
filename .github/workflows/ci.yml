@@ -1,0 +1,89 @@
+name: CI
+
+# 触发时机：推送到 main、对任意分支开 PR、以及手动点一次
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# 同一分支连续推送时，取消上一次还没跑完的任务，省额度也省等待
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: 后端 / ruff + pytest（含 80% 覆盖率门禁）
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/requirements.txt
+
+      - name: 创建虚拟环境
+        run: uv venv --python 3.13
+
+      - name: 安装依赖
+        run: uv pip install --python .venv/bin/python -r requirements.txt
+
+      - name: 代码风格（ruff）
+        run: .venv/bin/python -m ruff check app tests
+
+      - name: 单元与接口测试
+        # 只对 app/pipeline 与 app/services 设门禁：路由层由"每个接口三个用例"覆盖，
+        # 硬刷百分比只会写出没有断言的空测试（SRS 10.2 的覆盖率口径）。
+        run: >
+          .venv/bin/python -m pytest -q
+          --cov=app.pipeline --cov=app.services
+          --cov-report=term-missing
+          --cov-fail-under=80
+
+      - name: 验证配色产物没有过期
+        # tokens.json 改动后忘了跑 gen_theme.py，屏幕与报告图就会悄悄不一致（SRS RK-22 / T-32）
+        run: .venv/bin/python ../scripts/gen_theme.py --check
+
+  frontend:
+    name: 前端 / typecheck + vitest + build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 12
+
+      - name: 安装 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: 安装依赖
+        # 构建脚本白名单在 pnpm-workspace.yaml 里（esbuild 必须放行），
+        # 否则 pnpm 会以 ERR_PNPM_IGNORED_BUILDS 退出 1
+        run: pnpm install --frozen-lockfile
+
+      - name: 类型检查
+        run: pnpm run typecheck
+
+      - name: 单元测试
+        run: pnpm run test:unit
+
+      - name: 生产构建
+        run: pnpm run build

@@ -1,0 +1,42 @@
+/* 由 scripts/gen_theme.py 从 tokens.json 生成，请勿手改。 */
+
+:root {
+  --color-bg-page: #F8FAFC;
+  --color-bg-surface: #FFFFFF;
+  --color-bg-subtle: #F1F5F9;
+  --color-border: #E2E8F0;
+  --color-border-strong: #CBD5E1;
+  --color-text-primary: #0F172A;
+  --color-text-secondary: #475569;
+  --color-text-muted: #94A3B8;
+  --color-brand: #0F766E;
+  --color-brand-hover: #115E59;
+  --color-brand-soft: #F0FDFA;
+  --color-danger: #B91C1C;
+  --color-status-low: #2563EB;
+  --color-status-normal: #16A34A;
+  --color-status-high: #DC2626;
+  --color-status-na: #6B7280;
+  --color-refband: #E0F2FE;
+  --color-grid: #F1F5F9;
+  --chart-series-1: #0072B2;
+  --chart-series-2: #D55E00;
+  --chart-series-3: #009E73;
+  --chart-series-4: #CC79A7;
+  --chart-series-5: #E69F00;
+  --chart-series-6: #56B4E9;
+  --chart-series-7: #F0E442;
+  --chart-series-8: #000000;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --font-family: "Inter", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}

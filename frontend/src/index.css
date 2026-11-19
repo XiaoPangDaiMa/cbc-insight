@@ -1,0 +1,46 @@
+@import "tailwindcss";
+@import "./theme/tokens.generated.css";
+
+/* 设计 token 全部来自 tokens.generated.css（由 tokens.json 生成）。
+   组件里只允许用 var(--color-*)，不允许写字面十六进制色值（NFR-M-07、T-32）。 */
+
+@theme {
+  --font-sans: var(--font-family);
+  --radius-md: var(--radius-md);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg-page);
+  color: var(--color-text-primary);
+  font-family: var(--font-family);
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 三态语义色。写成 class 而不是内联色值，是为了让「颜色」这一通道
+   和符号（↑/↓/—/∅）、文字一起出现在同一个地方（BR-14）。 */
+.stat-low {
+  color: var(--color-status-low);
+}
+.stat-normal {
+  color: var(--color-status-normal);
+}
+.stat-high {
+  color: var(--color-status-high);
+}
+.stat-na {
+  color: var(--color-status-na);
+}
+
+.card {
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+}

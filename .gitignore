@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/                 # 任意层级的虚拟环境（本项目在 backend/.venv）
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+install.log
+
+# 测试覆盖率产物（本地跑 --cov 会生成，不该进仓库）
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# 运行产物（上传件、每步中间结果、导出、默认 SQLite 库，本项目在 backend/data/）
+data/
+*.db
+*.sqlite3
+/.run/
+
+# 前端
+node_modules/
+frontend/dist/
+frontend/.vite/
+*.tsbuildinfo
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# 注意：scripts/ 下的 gen_theme.py 与 smoke_local.py 是仓库的一部分，不要忽略它们；
+# 根目录 scripts/ 曾被我误当成"临时目录"，其实它是跨前后端的工具目录（见 README 第三节）。
