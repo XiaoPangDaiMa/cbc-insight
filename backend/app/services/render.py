@@ -82,6 +82,8 @@ def _apply_style() -> None:
             "xtick.color": palette["text_secondary"],
             "ytick.color": palette["text_secondary"],
             "grid.color": palette["grid"],
+            # 网格线压在柱子底下：默认值会让横向条被竖线"切成条纹"，看着像长毛刺
+            "axes.axisbelow": True,
             "axes.prop_cycle": plt.cycler(color=series_colors()),
         }
     )
@@ -286,4 +288,110 @@ def scatter_image(
     ax.set_xlabel(f"{name_x}（{unit_x}）" if unit_x else name_x)
     ax.set_ylabel(f"{name_y}（{unit_y}）" if unit_y else name_y)
     ax.set_title(f"{name_x} 与 {name_y}（n = {len(pair)}）", fontsize=12, loc="left")
+    return _to_bytes(fig, fmt)
+
+
+def quality_image(
+    quality: dict[str, Any],
+    clean_report: dict[str, Any],
+    fields,
+    *,
+    fmt: Format = "png",
+) -> bytes:
+    """一页看完数据质量（FR-13 的报告版）：完整率 / DQ 打分 / 剔除原因。
+
+    三块并排而不是三张图：报告里连续三张"只有两根柱子"的图会让人翻页，
+    而这三件事本来就是同一个问题（这份数据能不能信）的三个面。
+
+    数据来自落库的 ``quality`` 与 ``clean_report``，**不重算**——报告与页面上的数字
+    必须能对上，重算一遍就多了第二个真相。
+    """
+    from app.services.quality_chart import DQ_TEXT, LOW_COMPLETENESS, REMOVED_TEXT
+
+    _apply_style()
+    palette = colors()
+    fig = plt.figure(figsize=(11.4, 3.9))
+    grid = fig.add_gridspec(1, 3, width_ratios=[1.25, 1.0, 0.95], wspace=0.55)
+
+    # ── 左：各字段完整率（升序，最差的在最上面）──
+    ax = fig.add_subplot(grid[0, 0])
+    completeness = {
+        metric: float(ratio) for metric, ratio in (quality.get("completeness") or {}).items() if ratio is not None
+    }
+    if completeness:
+        ordered = sorted(completeness.items(), key=lambda pair: pair[1])
+        labels = [fields.name_cn(metric) or metric for metric, _ in ordered]
+        values = [ratio * 100 for _, ratio in ordered]
+        bars = ax.barh(labels, values, height=0.62, color=series_colors()[0])
+        for bar, value in zip(bars, values, strict=True):
+            ax.text(
+                value + 1.5,
+                bar.get_y() + bar.get_height() / 2,
+                f"{value:.0f}%",
+                va="center",
+                fontsize=7.5,
+                color=palette["text_secondary"],
+            )
+        ax.axvline(LOW_COMPLETENESS * 100, linestyle=":", linewidth=1.1, color=palette["status_high"])
+        ax.set_xlim(0, 108)
+        ax.grid(False)  # 每条都标了数值，网格只会把条切成一段一段
+        ax.tick_params(axis="y", labelsize=8)
+        ax.set_xlabel("完整率（%）", fontsize=8.5)
+    else:
+        ax.text(0.5, 0.5, "没有完整率记录", ha="center", va="center", fontsize=9, color=palette["text_muted"])
+    ax.set_title("各字段完整率", fontsize=10.5, loc="left")
+
+    # ── 中：DQ-01~06 ──
+    ax = fig.add_subplot(grid[0, 1])
+    dq = quality.get("dq") or {}
+    codes = [code for code in DQ_TEXT if code in dq and dq[code] is not None]
+    if codes:
+        labels = [DQ_TEXT[code] for code in codes]
+        values = [float(dq[code]) * 100 for code in codes]
+        ax.barh(labels, values, height=0.6, color=series_colors()[1])
+        for index, value in enumerate(values):
+            ax.text(
+                value + 1.5,
+                index,
+                f"{value:.1f}".rstrip("0").rstrip("."),
+                va="center",
+                fontsize=7.5,
+                color=palette["text_secondary"],
+            )
+        ax.set_xlim(0, 108)
+        ax.grid(False)
+        ax.tick_params(axis="y", labelsize=8)
+        ax.set_xlabel("得分（0–100）", fontsize=8.5)
+    else:
+        ax.text(0.5, 0.5, "没有 DQ 记录", ha="center", va="center", fontsize=9, color=palette["text_muted"])
+    ax.set_title("数据质量指标", fontsize=10.5, loc="left")
+
+    # ── 右：剔除原因 ──
+    ax = fig.add_subplot(grid[0, 2])
+    removed = {reason: int(count) for reason, count in (clean_report.get("removed_by_reason") or {}).items() if count}
+    if removed:
+        labels = [REMOVED_TEXT.get(reason, reason) for reason in removed]
+        ax.pie(
+            list(removed.values()),
+            labels=[f"{label} {count:,}" for label, count in zip(labels, removed.values(), strict=True)],
+            autopct="%1.1f%%",
+            startangle=90,
+            textprops={"fontsize": 7.5, "color": palette["text_secondary"]},
+            colors=series_colors()[: len(removed)],
+            wedgeprops={"linewidth": 1.2, "edgecolor": palette["bg_surface"]},
+        )
+    else:
+        ax.text(
+            0.5,
+            0.5,
+            "没有剔除任何行\n（所有行都进入了判定）",
+            ha="center",
+            va="center",
+            fontsize=9,
+            color=palette["text_muted"],
+        )
+        ax.set_xticks([])
+        ax.set_yticks([])
+    ax.set_title("清洗剔除原因", fontsize=10.5, loc="left")
+
     return _to_bytes(fig, fmt)

@@ -289,6 +289,7 @@ cd cbc-insight\backend
 cd ..\frontend
 pnpm exec tsc --noEmit                          # 类型检查
 pnpm exec vitest run tests/unit                 # 11 passed
+pnpm exec vitest run tests/integration          # 6 passed（MSW 拦 network 层）
 pnpm run build                                  # 产出 dist/
 
 cd ..\frontend
@@ -299,6 +300,9 @@ pnpm run test:e2e                               # 一条主流程（需先 .\sta
   接口级用例用临时 SQLite + 临时数据目录，因此**不需要 Docker**。
 - 前端单元测试在 `frontend/tests/unit/`，`src/` 下不出现 `*.test.tsx`。
   图表只断言传给 ECharts 的 `option` 对象，不比像素（像素比对会因为字体/dpi 差异常年变红，最后一定被删掉）。
+- 前端集成测试在 `frontend/tests/integration/`，用 **MSW 在 network 层拦截**而不是 mock 掉 `api.*`：
+  前端真正会翻车的是"URL 拼错、参数漏传、缓存键少一段"，把函数 mock 掉就把这层保护一起 mock 掉了。
+  目前两条：切数据集不串数（T-16）、预览与下载参数一字不差（RK-19 / T-29）。
 - 覆盖率门禁只对 `app/pipeline/` 与 `app/services/` 设 80%，路由层靠"每个端点三个用例"覆盖。
 - **E2E 只有一条**（T-37）：注册 → 上传夹具 → 出图 → 导出下载。它自己注册随机账号、用固定夹具，
   不依赖演示数据；跑之前前端 5173 与后端 8000 要在跑（先 `.\start.ps1 -NoBrowser`）。
@@ -364,12 +368,11 @@ backend\.venv\Scripts\python.exe scripts\gen_theme.py --check  # 校验产物是
 | FR-33/34 账号 | 注册即登录、改名、改密、连续失败 5 次锁 15 分钟、登出吊销 refresh；**v1.6 起无角色概念**，只有归属隔离 |
 | FR-28 数据集 | 列表、切换、重命名、级联删除（含磁盘文件清理） |
 | FR-24/36/37 区间 | 三层区间（临时 > 我的 > 默认）、整份保存 + 必填理由、版本历史、重判只重放 S6–S7、拖/输试算不落库 |
-| FR-20/21 报告与图 | 单文件 HTML（base64 内嵌 3 图，含免责声明）、PNG 300dpi / SVG 下载 |
+| FR-20/21 报告与图 | 单文件 HTML（base64 内嵌 4 图：箱线/直方/热力 + 质量图三联，含免责声明）、PNG 300dpi / SVG 下载 |
 | FR-29 并排对比 | 2–4 份数据集按指标并排：每格给 n / 缺失数 / 中位数 / 四分位 / 均值 / 三态占比条；口径不同（区间版本、`default` vs `unified`）会显式提示；**响应里没有 p 值、置信区间、效应量**（BR-13） |
 
 ## 八、还没做
 
-- 前端集成测试（`frontend/tests/integration/` 目前是空的；E2E 已有且只有一条主流程）。
 - Redis 队列：目前 10 万行以内走同步链路（实测 19.4 s），超过 `sync_clean_budget_seconds` 才需要 RQ。
   结果缓存已接（`app/core/cache.py`：键里含 `dataset_id` 与判定口径，没配 Redis 时自动退化为进程内缓存）。
 - PDF 上传解析（FR-26）、跨数据集统计推断（v2，且须先论证可比性）、审计日志（FR-25）、术语表（FR-27）。
@@ -397,7 +400,42 @@ backend\.venv\Scripts\python.exe scripts\gen_theme.py --check  # 校验产物是
 
 ---
 
-## 十、免责声明
+## 十、常见问题
+
+这些都是"会在自己机器上真实撞到"的问题，按被问到的顺序记；每条都给了判断依据，而不是"再试一次"。
+
+**1. 打开 5173 是白屏，或者页面上所有请求都 404。**
+后端没起，或者起的是旧代码。判断依据：`curl http://127.0.0.1:8000/healthz` 应返回 `{"ok": true, ...}`。
+`start.ps1` 之所以要轮询这个地址，就是因为"进程起来了"和"服务能用了"是两件事（Vite 的 `/api` 代理在后端未就绪时只会给你 `ECONNREFUSED`）。
+改了后端代码要重启后端；前端由 Vite 热更新，不用重启。
+
+**2. 运行配置里报 `ModuleNotFoundError: No module named 'app'`。**
+工作目录不是 `backend/`。`app` 是相对导入，必须在 `backend/` 下执行 `python -m uvicorn app.main:app`。
+
+**3. 图里的中文变成方框。**
+服务器渲染（报告 PNG）依赖 `matplotlib` 找到中文字体：Docker 镜像里已装 `fonts-noto-cjk`；
+本机需要 `Noto Sans SC` / `Microsoft YaHei` / `SimHei` 之一。浏览器里的 ECharts 用的是系统字体，通常不会出这个问题。
+
+**4. 改了参考区间，页面上判决却没变。**
+这是**故意**的：改区间不会自动重判（改了就要重跑十万行，而你只是想先看看）。
+判定结果上会挂"陈旧"横幅，去数据集详情 «区间» tab 点「按当前区间重判」——只重放 S6–S7，`sample_index` 一个都不动。
+
+**5. 导入后异常率特别高，是不是算错了？**
+先看数据集详情顶部那行"健康状况"，它会写明单位换算（例如 `hgb 原单位 g/dL → g/L（×10）`）。
+单位判错会整体偏移；确认单位后，再看是否该勾选"本数据集无性别，按统一区间判定"——
+没有性别时 `hgb/rbc/hct` 会一律判 `NA`，强行套男性区间会得出"全都偏低"的假结论（BR-17）。
+
+**6. E2E 跑不起来。**
+`pnpm run test:e2e` 要求后端 8000 与前端 5173 都在跑（配置里刻意不启 `webServer`，
+避免"测试在跑、你在看演示站"两套数据混在一起）。换地址用 `CBC_E2E_BASE=http://127.0.0.1:8080 npx playwright test`。
+
+**7. 十万行为什么要十几秒？**
+真实数据的耗时构成与优化前后对比写在 `docs/真实数据体检.md`：瓶颈原本在清洗去重与逐行判定，
+现在 S1–S7 合计约 19 s（其中 S7 统计 8 s 是 pandas 分组本身的开销）。超过 30 s 才需要考虑上队列。
+
+---
+
+## 十一、免责声明
 
 本系统面向教学与研究，使用公开脱敏数据；输出仅为"是否超出参考区间"的机械判定，
 不构成任何医学诊断或建议。参考区间默认取 WS/T 405-2012 成人区间，不同实验室、不同检测

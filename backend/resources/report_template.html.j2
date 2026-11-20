@@ -101,6 +101,16 @@
     </table>
     <p class="muted">剔除只针对"录入错误与重复行"（脏数据），取值范围合法但偏离参考区间的样本一律保留并判定，见第三部分。</p>
     {% endif %}
+    {% if quality_block %}
+    <h3>数据质量图</h3>
+    <p>{{ quality_block.caption }}</p>
+    <figure class="chart">
+      <img src="data:image/png;base64,{{ quality_block.image }}" alt="数据质量图" />
+      <figcaption>
+        <p>{{ quality_block.note }}</p>
+      </figcaption>
+    </figure>
+    {% endif %}
   </section>
   {% endif %}
 

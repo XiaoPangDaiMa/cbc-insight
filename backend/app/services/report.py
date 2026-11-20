@@ -23,6 +23,7 @@ from app.core.config import Settings, get_settings
 from app.pipeline import captions as caption_mod
 from app.pipeline import stats as stats_mod
 from app.services import chart as chart_mod
+from app.services import quality_chart as quality_chart_mod
 from app.services import render
 from app.services.loader import load_fields, load_reference_ranges
 from app.services.pipeline_runner import load_artifacts
@@ -256,6 +257,26 @@ def build_report(dataset, *, settings: Settings | None = None) -> str:
         for reason, count in (clean_report.get("removed_by_reason") or {}).items()
     ]
 
+    # 质量图（FR-13 的报告版）。这一块是"附加信息"：出图失败不能让整份报告生不出来，
+    # 但也不能悄悄吞掉——所以失败时只丢这一块，其余章节照常。
+    quality_block = None
+    if (quality.get("completeness") or dq) and clean_report.get("health"):
+        try:
+            payload = quality_chart_mod.quality_chart(dataset, fields, settings=settings)
+            quality_block = {
+                "caption": payload["caption"],
+                "image": base64.b64encode(
+                    render.quality_image(quality, clean_report, fields)
+                ).decode("ascii"),
+                "note": (
+                    "左：各字段完整率（条越短缺得越多，虚线是 90% 最低可接受线）；"
+                    "中：DQ-01~06 得分（留空表示该项未计算，不是 0 分）；"
+                    "右：清洗剔除的原因分布——剔除的只是脏数据，偏离参考区间的样本一律保留。"
+                ),
+            }
+        except (ValueError, KeyError, RuntimeError):  # 出图失败只丢这一块
+            quality_block = None
+
     has_gender = "gender" in frame.columns and frame["gender"].isin(["male", "female"]).any()
     if dataset.unified_ranges:
         ri_source_text = "统一区间（用户声明本数据集无性别）"
@@ -288,6 +309,7 @@ def build_report(dataset, *, settings: Settings | None = None) -> str:
         stage_rows=stage_rows,
         dq_rows=dq_rows,
         removed_rows=removed_rows,
+        quality_block=quality_block,
         na_note=na_note,
         unified_note=unified_note,
         ri_version=dataset.ri_version or ranges.version,

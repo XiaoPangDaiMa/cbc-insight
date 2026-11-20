@@ -120,6 +120,23 @@ def test_report_contains_images_and_disclaimer(client: TestClient, auth: dict[st
     assert "参考区间" in text
 
 
+def test_report_includes_quality_figure(client: TestClient, auth: dict[str, str], dataset: dict) -> None:
+    """FR-13 的报告版：完整率 / DQ / 剔除原因三块必须进报告。
+
+    这条用例守的是"报告与页面各算一遍"这个经典退化路径：质量图的数字只能来自
+    落库的 quality 与 clean_report，页面上是什么，报告里就得是什么。
+    """
+    response = client.get(f"/api/v1/datasets/{dataset['dataset_id']}/report.html", headers=auth)
+    assert response.status_code == 200, response.text
+    text = response.text
+
+    assert "数据质量图" in text, "报告里没有质量图这一节"
+    # 三块图的标题画在图里（位图），HTML 里只留图注，所以这里断言图注措辞
+    assert "各字段完整率" in text and "DQ-01~06" in text and "剔除的原因分布" in text
+    # 三张临床图 + 一张质量图；少一张就说明某个分支被悄悄跳过了
+    assert text.count("data:image/png;base64,") >= 4
+
+
 def test_report_without_gender_still_renders(
     client: TestClient, auth: dict[str, str], genderless: dict
 ) -> None:
