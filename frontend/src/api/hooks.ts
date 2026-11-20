@@ -10,6 +10,7 @@ import type {
   AuthTokens,
   ChartPayload,
   CleanReportPayload,
+  ComparePayload,
   DatasetPayload,
   ExportPreviewPayload,
   FilterState,
@@ -74,6 +75,7 @@ export const keys = {
   myRanges: ["my-ranges"] as const,
   rangeVersions: ["my-ranges", "versions"] as const,
   rangesSnapshot: (id: string) => ["ranges-snapshot", id] as const,
+  compare: (ids: string[], metrics: string[]) => ["compare", ids.join(","), metrics.join(",")] as const,
 };
 
 export const api = {
@@ -133,4 +135,11 @@ export const api = {
   rangeVersions: () => request<{ items: RangeVersionPayload[] }>("/me/reference-ranges/versions"),
   rangesSnapshot: (id: string) => request<RangesSnapshotPayload>(`/datasets/${id}/ranges-snapshot`),
   rejudge: (id: string) => request<RejudgePayload>(`/datasets/${id}/rejudge`, { method: "POST", body: {} }),
+
+  // 多数据集并排（FR-29）：只有描述统计与三态占比，接口层就不提供任何检验
+  compare: (datasetIds: string[], metrics: string[] = []) =>
+    request<ComparePayload>("/compare/stats", {
+      method: "POST",
+      body: { dataset_ids: datasetIds, metrics: metrics.length > 0 ? metrics : null },
+    }),
 };

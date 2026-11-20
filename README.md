@@ -329,10 +329,11 @@ backend\.venv\Scripts\python.exe scripts\gen_theme.py --check  # 校验产物是
 | FR-28 数据集 | 列表、切换、重命名、级联删除（含磁盘文件清理） |
 | FR-24/36/37 区间 | 三层区间（临时 > 我的 > 默认）、整份保存 + 必填理由、版本历史、重判只重放 S6–S7、拖/输试算不落库 |
 | FR-20/21 报告与图 | 单文件 HTML（base64 内嵌 3 图，含免责声明）、PNG 300dpi / SVG 下载 |
+| FR-29 并排对比 | 2–4 份数据集按指标并排：每格给 n / 缺失数 / 中位数 / 四分位 / 均值 / 三态占比条；口径不同（区间版本、`default` vs `unified`）会显式提示；**响应里没有 p 值、置信区间、效应量**（BR-13） |
 
 ## 八、还没做
 
-- FR-29 多数据集并排对比（M4）；FR-13 质量图（P2）。
+- FR-13 质量图（P2）。
 - Playwright E2E（只做一条主流程）、前端集成测试（`frontend/tests/integration/` 目前是空的）。
 - Redis 缓存与队列：当前 10 万行以内走同步链路（实测 19.4 s），超过 `sync_clean_budget_seconds` 再接 RQ。
 - PDF 解析（FR-26）、跨数据集统计推断（v2，且须先论证可比性）、审计日志（FR-25）。

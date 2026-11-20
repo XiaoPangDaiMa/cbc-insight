@@ -37,6 +37,17 @@ class QueryRequest(BaseModel):
     size: int = 50
 
 
+class CompareRequest(BaseModel):
+    """POST /compare/stats（FR-29 多数据集并排对比）。
+
+    数量上限写在这里而不是靠前端限制：接口是公开契约，能被 curl 直接调用，
+    所以"最多 4 个"必须由服务端拒绝（BR-13 之外的第二条护栏）。
+    """
+
+    dataset_ids: list[str] = Field(min_length=2, max_length=4)
+    metrics: list[str] | None = None
+
+
 class ChartRequest(BaseModel):
     metric: str | None = None
     metric_y: str | None = None

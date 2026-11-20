@@ -38,6 +38,10 @@ export interface DatasetPayload {
   columns: number;
   status: "uploaded" | "cleaned" | "failed";
   ri_version: string;
+  /** 判定口径：user#v3 / default@2026.11.1 / unified@… —— 列表页与对比页都要显示 */
+  ri_source?: string;
+  judged_at?: string | null;
+  unified_ranges?: boolean;
   created_at: string;
   updated_at: string;
   health: string;
@@ -335,4 +339,53 @@ export interface FilterState {
   gender?: string | null;
   age_min?: number | null;
   age_max?: number | null;
+}
+
+/** 并排对比里"某一格"的统计量（FR-29）。
+ *
+ * 四个占比相加为 1（MIXED 计入 pct_na），`n + missing` 等于该数据集的样本数——
+ * 前端据此检查"这一列是不是少了一截人"，而不是默认所有行都参与了计算。
+ */
+export interface CompareCell {
+  dataset_id: string;
+  n: number;
+  missing: number;
+  mean: number | null;
+  sd: number | null;
+  median: number | null;
+  q1: number | null;
+  q3: number | null;
+  min: number | null;
+  max: number | null;
+  pct_low: number | null;
+  pct_normal: number | null;
+  pct_above: number | null;
+  pct_na: number | null;
+}
+
+export interface CompareRow {
+  metric: string;
+  name_cn: string;
+  unit: string;
+  decimals: number;
+  cells: CompareCell[];
+}
+
+export interface CompareDataset {
+  dataset_id: string;
+  name: string;
+  rows: number;
+  ri_version: string;
+  ri_source: string;
+  unified_ranges: boolean;
+  judged_at: string | null;
+}
+
+export interface ComparePayload {
+  datasets: CompareDataset[];
+  metrics: string[];
+  side_by_side: CompareRow[];
+  excluded: { dataset_id: string; dataset_name: string; metric: string; reason: string }[];
+  notes: string[];
+  disclaimer: string;
 }

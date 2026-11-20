@@ -6,6 +6,7 @@ import { api, keys } from "@/api/hooks";
 
 const NAV = [
   { to: "/", label: "工作台", end: true },
+  { to: "/compare", label: "数据集对比" },
   { to: "/reference", label: "我的参考区间" },
   { to: "/export", label: "导出中心" },
   { to: "/account", label: "账号" },

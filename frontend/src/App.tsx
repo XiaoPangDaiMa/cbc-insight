@@ -3,6 +3,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { RequireAuth } from "@/auth/session";
 import { Layout } from "@/components/Layout";
 import { Account } from "@/pages/Account";
+import { Compare } from "@/pages/Compare";
 import { Dashboard } from "@/pages/Dashboard";
 import { DatasetDetail } from "@/pages/DatasetDetail";
 import { ExportCenter } from "@/pages/ExportCenter";
@@ -24,6 +25,7 @@ export default function App() {
       >
         <Route index element={<Dashboard />} />
         <Route path="/datasets/:datasetId" element={<DatasetDetail />} />
+        <Route path="/compare" element={<Compare />} />
         <Route path="/reference" element={<ReferenceRanges />} />
         <Route path="/export" element={<ExportCenter />} />
         <Route path="/account" element={<Account />} />
