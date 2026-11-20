@@ -53,10 +53,17 @@ def _completeness_panel(completeness: dict[str, float], fields: FieldDictionary)
     labels = [fields.name_cn(metric) or metric for metric, _ in items]
     values = [round(ratio * 100, 2) for _, ratio in items]
     option = {
-        "grid": {"left": 96, "right": 56, "top": 16, "bottom": 28},
+        # 中文指标名很长（"平均红细胞血红蛋白浓度"），左留白按 120 给；bottom 要给
+        # x 轴刻度 + 轴名留位置，否则名字会被裁成半个字——这在内网投影上尤其明显。
+        "grid": {"left": 128, "right": 64, "top": 16, "bottom": 52},
         "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}},
-        "xAxis": {"type": "value", "min": 0, "max": 100, "name": "完整率(%)", "nameLocation": "middle", "nameGap": 24},
-        "yAxis": {"type": "category", "data": labels, "axisTick": {"show": False}},
+        "xAxis": {"type": "value", "min": 0, "max": 100, "name": "完整率(%)", "nameLocation": "middle", "nameGap": 30},
+        "yAxis": {
+            "type": "category",
+            "data": labels,
+            "axisTick": {"show": False},
+            "axisLabel": {"fontSize": 11, "width": 120, "overflow": "truncate"},
+        },
         "series": [
             {
                 "type": "bar",
@@ -82,10 +89,15 @@ def _dq_panel(dq: dict[str, float | None]) -> dict[str, Any]:
     # None → 让 ECharts 画成空档：0 会被读成"这项得了 0 分"，二者含义完全不同
     values = [None if dq[code] is None else round(float(dq[code]) * 100, 2) for code in codes]
     option = {
-        "grid": {"left": 120, "right": 56, "top": 16, "bottom": 28},
+        "grid": {"left": 128, "right": 64, "top": 16, "bottom": 52},
         "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}},
-        "xAxis": {"type": "value", "min": 0, "max": 100, "name": "得分(%)", "nameLocation": "middle", "nameGap": 24},
-        "yAxis": {"type": "category", "data": labels, "axisTick": {"show": False}},
+        "xAxis": {"type": "value", "min": 0, "max": 100, "name": "得分(%)", "nameLocation": "middle", "nameGap": 30},
+        "yAxis": {
+            "type": "category",
+            "data": labels,
+            "axisTick": {"show": False},
+            "axisLabel": {"fontSize": 11, "width": 120, "overflow": "truncate"},
+        },
         "series": [
             {
                 "type": "bar",
@@ -111,14 +123,17 @@ def _removed_panel(removed: dict[str, int]) -> dict[str, Any] | None:
     data = [{"name": REMOVED_TEXT.get(key, key), "value": count} for key, count in items]
     option = {
         "tooltip": {"trigger": "item", "formatter": "{b}: {c} 行 ({d}%)"},
-        "legend": {"bottom": 0, "icon": "circle"},
+        # 图例放右侧、半径收小：饼图铺满整块面板时会大得离谱，而这里只说明"占多少"，
+        # 不需要用面积去暗示数量级（真要看数量是下面那张表的事）。
+        "legend": {"orient": "vertical", "right": 8, "top": "middle", "icon": "circle"},
         "series": [
             {
                 "type": "pie",
-                "radius": ["42%", "68%"],
-                "center": ["50%", "46%"],
+                "radius": ["26%", "44%"],
+                "center": ["34%", "50%"],
                 "avoidLabelOverlap": True,
-                "label": {"formatter": "{b} {c} 行"},
+                "label": {"formatter": "{c} 行"},
+                "labelLine": {"length": 8, "length2": 6},
                 "data": data,
             }
         ],

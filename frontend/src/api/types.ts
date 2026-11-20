@@ -275,7 +275,9 @@ export interface CleanReportPayload {
   before: Record<string, number>;
   after: Record<string, number>;
   removed_by_reason: Record<string, number>;
-  log: { step: number; action: string; field: string | null; count: number; note: string }[];
+  /** 后端 CleanLogEntry 的字段是 `detail`（不是 note）：写错字段名不会报错，
+   *  只会让"说明"这一列整列空着——看起来像"后端没给说明"。 */
+  log: { step: number; action: string; field: string | null; count: number; detail: string }[];
   dropped_columns: string[];
   filled: Record<string, number>;
   unit_log: string[];

@@ -14,9 +14,16 @@ import { EChart } from "@/components/EChart";
 import { ErrorNotice, EmptyState } from "@/components/EmptyState";
 
 const PANEL_HEIGHT: Record<ChartPanel["id"], number> = {
-  completeness: 260,
-  dq: 240,
-  removed: 260,
+  completeness: 270,
+  dq: 270,
+  removed: 280,
+};
+
+/** 剔除原因是一张饼：只说明"占多少"，占半栏就够，撑满整行会显得空旷。 */
+const PANEL_SPAN: Record<ChartPanel["id"], string> = {
+  completeness: "",
+  dq: "",
+  removed: "",
 };
 
 const PANEL_HINT: Record<ChartPanel["id"], string> = {
@@ -50,7 +57,7 @@ export function QualityPanel({ datasetId }: { datasetId: string }) {
       </p>
       <div className="mt-2 grid gap-3 xl:grid-cols-2">
         {panels.map((panel) => (
-          <figure key={panel.id} className="min-w-0">
+          <figure key={panel.id} className={`min-w-0 ${PANEL_SPAN[panel.id]}`}>
             <figcaption
               className="mb-1 text-[12px] font-medium"
               style={{ color: "var(--color-text-secondary)" }}

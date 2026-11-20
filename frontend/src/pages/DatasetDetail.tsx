@@ -282,7 +282,7 @@ export function DatasetDetail() {
                       <td>{entry.step}</td>
                       <td>{entry.field ?? "—"}</td>
                       <td className="text-right">{entry.count}</td>
-                      <td>{entry.note}</td>
+                      <td>{entry.detail}</td>
                     </tr>
                   ))}
                 </tbody>
