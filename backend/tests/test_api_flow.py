@@ -123,6 +123,7 @@ def test_unknown_dataset_is_404(client: TestClient, auth: dict[str, str]) -> Non
 def test_stats_and_metric_status(client: TestClient, auth: dict[str, str], uploaded: dict) -> None:
     dataset_id = uploaded["dataset"]["dataset_id"]
 
+
     stats = client.get(f"/api/v1/datasets/{dataset_id}/stats", headers=auth).json()
     names = {item["metric"] for item in stats["overview"]}
     assert {"hgb", "wbc", "plt"} <= names
@@ -214,6 +215,55 @@ def test_dashboard_lists_own_datasets(client: TestClient, auth: dict[str, str], 
     assert body["dataset_count"] >= 1
     ids = {item["dataset_id"] for item in body["datasets"]}
     assert body["latest"]["dataset_id"] in ids
+
+
+def test_quality_chart_has_three_panels(client: TestClient, auth: dict[str, str], uploaded: dict) -> None:
+    """FR-13：完整率 / DQ 评分 / 剔除原因三块图，数据来自落库结果而不是重算。"""
+    dataset_id = uploaded["dataset"]["dataset_id"]
+    response = client.post(f"/api/v1/datasets/{dataset_id}/charts/quality", headers=auth, json={})
+    assert response.status_code == 200, response.text
+    body = response.json()
+
+    assert body["kind"] == "quality"
+    assert body["metric"] is None
+    assert body["points"] == [], "质量图没有点位，返回空列表而不是省略字段"
+    panels = {panel["id"]: panel for panel in body["panels"]}
+    assert set(panels) == {"completeness", "dq", "removed"}
+
+    completeness = panels["completeness"]["echarts_option"]["series"][0]["data"]
+    assert completeness and all(0 <= value <= 100 for value in completeness)
+
+    dq_series = panels["dq"]["echarts_option"]["series"][0]["data"]
+    # DQ-05/DQ-06 在没有 HCT 的数据上算不出来：必须是 None（空档），不能是 0（0 分）
+    assert any(value is None for value in dq_series), dq_series
+
+    removed = panels["removed"]["echarts_option"]["series"][0]["data"]
+    assert removed[0]["name"] == "完全重复行"
+    assert "清洗共剔除" in body["caption"]
+    assert "显著" not in body["caption"]
+
+
+def test_quality_chart_ignores_metric_and_filters(
+    client: TestClient, auth: dict[str, str], uploaded: dict
+) -> None:
+    """质量图讲"当时那次清洗做了什么"，传 metric/筛选都不该改变它（也不该报错）。"""
+    dataset_id = uploaded["dataset"]["dataset_id"]
+    plain = client.post(f"/api/v1/datasets/{dataset_id}/charts/quality", headers=auth, json={}).json()
+    noisy = client.post(
+        f"/api/v1/datasets/{dataset_id}/charts/quality",
+        headers=auth,
+        json={"metric": "hgb", "bins": 5, "filters": [{"metric": "hgb", "op": "lt", "value": 100}]},
+    )
+    assert noisy.status_code == 200, noisy.text
+    assert noisy.json()["caption"] == plain["caption"]
+    assert noisy.json()["supporting"] == plain["supporting"]
+
+
+def test_unknown_chart_kind_is_422(client: TestClient, auth: dict[str, str], uploaded: dict) -> None:
+    dataset_id = uploaded["dataset"]["dataset_id"]
+    response = client.post(f"/api/v1/datasets/{dataset_id}/charts/nope", headers=auth, json={})
+    assert response.status_code == 422
+    assert response.json()["code"] == 42201
 
 
 def test_delete_removes_dataset_and_files(client: TestClient, auth: dict[str, str], uploaded: dict) -> None:

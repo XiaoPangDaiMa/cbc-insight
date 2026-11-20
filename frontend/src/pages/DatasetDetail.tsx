@@ -7,6 +7,7 @@ import { AnomalyPanel } from "@/components/AnomalyPanel";
 import { EChart } from "@/components/EChart";
 import { FilterPanel } from "@/components/FilterPanel";
 import { MetricCard } from "@/components/MetricCard";
+import { QualityPanel } from "@/components/QualityPanel";
 import { RangesPanel } from "@/components/RangesPanel";
 import { SampleProfile } from "@/components/SampleProfile";
 import { ErrorNotice } from "@/components/EmptyState";
@@ -162,7 +163,7 @@ export function DatasetDetail() {
                 />
               </div>
               {box.error && <ErrorNotice error={box.error} />}
-              {box.data && <EChart option={box.data.echarts_option} height={320} />}
+              {box.data && <EChart option={box.data.echarts_option ?? {}} height={320} />}
               {box.data && (
                 <p className="mt-1 text-[12px]" style={{ color: "var(--color-text-primary)" }}>
                   {box.data.caption}
@@ -183,7 +184,7 @@ export function DatasetDetail() {
                 />
               </div>
               {hist.error && <ErrorNotice error={hist.error} />}
-              {hist.data && <EChart option={hist.data.echarts_option} height={280} />}
+              {hist.data && <EChart option={hist.data.echarts_option ?? {}} height={280} />}
               {hist.data && (
                 <p className="mt-1 text-[12px]" style={{ color: "var(--color-text-primary)" }}>
                   {hist.data.caption}
@@ -204,7 +205,7 @@ export function DatasetDetail() {
                 />
               </div>
               {corr.error && <ErrorNotice error={corr.error} />}
-              {corr.data && <EChart option={corr.data.echarts_option} height={560} />}
+              {corr.data && <EChart option={corr.data.echarts_option ?? {}} height={560} />}
               {corr.data && (
                 <p className="mt-1 text-[12px]" style={{ color: "var(--color-text-primary)" }}>
                   {corr.data.caption}
@@ -252,13 +253,17 @@ export function DatasetDetail() {
       {tab === "anomaly" && <AnomalyPanel datasetId={datasetId} />}
 
       {tab === "quality" && (
-        <section className="card p-3">
-          {cleanReport.error && <ErrorNotice error={cleanReport.error} />}
-          {cleanReport.data && (
-            <>
-              <h2 className="text-[13px] font-medium" style={{ color: "var(--color-text-secondary)" }}>
-                清洗前后对比
-              </h2>
+        <div className="grid gap-3">
+          {/* FR-13：质量图放在「数据详情」里，不放进「分析」——那里是看结论的地方，
+              这里是问"这份数据能不能用"的地方（4.3.3 的区块划分）。 */}
+          <QualityPanel datasetId={datasetId} />
+          <section className="card p-3">
+            {cleanReport.error && <ErrorNotice error={cleanReport.error} />}
+            {cleanReport.data && (
+              <>
+                <h2 className="text-[13px] font-medium" style={{ color: "var(--color-text-secondary)" }}>
+                  清洗前后对比
+                </h2>
               <p className="mt-1 text-[12px]" style={{ color: "var(--color-text-primary)" }}>
                 {cleanReport.data.health}
               </p>
@@ -291,7 +296,8 @@ export function DatasetDetail() {
               )}
             </>
           )}
-        </section>
+          </section>
+        </div>
       )}
     </div>
   );

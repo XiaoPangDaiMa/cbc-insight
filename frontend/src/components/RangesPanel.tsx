@@ -274,7 +274,7 @@ export function RangesPanel({ datasetId }: { datasetId: string }) {
 function TrialChart({ payload }: { payload: ChartPayload }) {
   return (
     <div>
-      <EChart option={payload.echarts_option} height={320} />
+      <EChart option={payload.echarts_option ?? {}} height={320} />
       <p className="mt-1 text-[12px]" style={{ color: "var(--color-text-secondary)" }}>
         {payload.caption}
       </p>

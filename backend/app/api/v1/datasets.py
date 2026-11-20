@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 from datetime import UTC, datetime
@@ -20,6 +21,7 @@ import pandas as pd
 from fastapi import APIRouter, Depends, File, Form, Query, Response, UploadFile, status
 from sqlalchemy.orm import Session
 
+from app.core.cache import build_cache, cache_key, judgment_scope
 from app.core.config import Settings, get_settings
 from app.core.deps import get_current_user, get_owned_dataset
 from app.core.errors import AppError
@@ -40,11 +42,12 @@ from app.services.chart import box_chart, corr_chart, hist_chart, scatter_chart
 from app.services.loader import load_fields
 from app.services.pipeline_runner import rejudge as rejudge_pipeline
 from app.services.pipeline_runner import run_pipeline
+from app.services.quality_chart import quality_chart
 
 router = APIRouter(prefix="/datasets", tags=["datasets"])
 
 #: 前端图表里出现的 kind（8.1）
-CHART_KINDS = ("box", "hist", "corr", "scatter")
+CHART_KINDS = ("box", "hist", "corr", "scatter", "quality")
 
 
 # --------------------------------------------------------------------------- 基础信息
@@ -303,9 +306,25 @@ def chart(
         raise AppError(42201, detail=f"不支持的图表类型 {kind}")
     fields = _fields()
 
+    # 质量图（FR-13）讲的是"当时那次清洗做了什么"，数据源是落库的 quality / clean_report，
+    # 因此不吃区间、不吃筛选、也不重算——重算出来的数字与报告里对不上，比没有这张图更糟。
+    if kind == "quality":
+        return quality_chart(dataset, fields, settings=settings)
+
     # 三层区间：临时 > 我的 > 默认（3.5.1）。临时层只在这次请求里活，不落库（FR-37）
-    eff = ranges_service.effective(db, user)
     trial = bool(payload.temp_ranges)
+    cache = build_cache(settings)
+    # 试算结果**不进缓存**（RK-26）：它属于"这次请求"，缓存了就可能在别的请求里
+    # 冒充"已保存的区间"；键里带判定口径，改区间后旧缓存自然不再命中。
+    chart_key = cache_key(
+        dataset.id, "chart", kind, _payload_fingerprint(payload), *judgment_scope(dataset)
+    )
+    if not trial:
+        hit = cache.get_json(chart_key)
+        if hit is not None:
+            return hit
+
+    eff = ranges_service.effective(db, user)
     if trial:
         eff = ranges_service.effective(db, user, temp=payload.temp_ranges)
     ranges = eff.ranges
@@ -323,6 +342,8 @@ def chart(
     if kind == "corr":
         result = corr_chart(frame, fields, (dataset.stats or {}).get("correlation", {}), settings=settings)
         result["ri_effective"] = effective_payload
+        if not trial:
+            cache.set_json(chart_key, result)
         return result
 
     metric = payload.metric
@@ -341,7 +362,15 @@ def chart(
         y_metric = payload.metric_y or _default_partner(metric)
         result = scatter_chart(frame, fields, metric, y_metric, settings=settings)
     result["ri_effective"] = effective_payload
+    if not trial:
+        cache.set_json(chart_key, result)
     return result
+
+
+def _payload_fingerprint(payload: ChartRequest) -> str:
+    """把请求体压成一个短串，作为缓存键的一段（只保留字段名与值的有序摘要）。"""
+    raw = payload.model_dump_json(exclude_none=True)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
 
 
 def _default_partner(metric: str) -> str:
@@ -359,8 +388,22 @@ def _default_partner(metric: str) -> str:
 
 
 @router.get("/{dataset_id}/metric-status")
-def metric_status(dataset: Dataset = Depends(get_owned_dataset)) -> dict[str, Any]:  # noqa: B008
-    """FR-30 常驻面板与悬停卡的数据源：每个指标的 n、三态占比、最大偏离度。"""
+def metric_status(
+    dataset: Dataset = Depends(get_owned_dataset),  # noqa: B008
+    settings: Settings = Depends(get_settings),  # noqa: B008
+) -> dict[str, Any]:
+    """FR-30 常驻面板与悬停卡的数据源：每个指标的 n、三态占比、最大偏离度。
+
+    这个接口会被前端在每次打开数据集详情时调用一次，而它要读一遍 flagged.parquet
+    再按指标分组——10 万行时是几百毫秒。缓存键里带 `dataset_id` 与判定口径，
+    所以"切换数据集串数据"和"改了区间还看旧结果"都不会发生（NFR-P-07 / RK-11）。
+    """
+    cache = build_cache(settings)
+    key = cache_key(dataset.id, "metric-status", *judgment_scope(dataset))
+    cached = cache.get_json(key)
+    if cached is not None:
+        return cached
+
     fields = _fields()
     overview = (dataset.stats or {}).get("overview", [])
     long = svc.long_frame(dataset)
@@ -397,12 +440,14 @@ def metric_status(dataset: Dataset = Depends(get_owned_dataset)) -> dict[str, An
         )
     # 异常项排在正常项之前，且各自按最大偏离度降序（T-21）
     items.sort(key=lambda item: (item["status"] == "NORMAL", -(item["max_deviation_pct"] or 0)))
-    return {
+    payload = {
         "ri_version": dataset.ri_version,
         "metrics": items,
         "gender_missing_samples": int((dataset.anomaly or {}).get("gender_missing_samples", 0)),
         "anomaly_rate": (dataset.anomaly or {}).get("anomaly_rate"),
     }
+    cache.set_json(key, payload)
+    return payload
 
 
 def _shares(long: pd.DataFrame, metric: str) -> dict[str, float]:

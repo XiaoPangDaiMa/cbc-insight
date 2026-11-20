@@ -25,6 +25,11 @@ frontend/dist/
 frontend/.vite/
 *.tsbuildinfo
 
+# Playwright（E2E 的失败现场：截图、trace、报告都不该进仓库）
+frontend/test-results/
+frontend/playwright-report/
+frontend/.playwright/
+
 # 编辑器 / 系统
 .vscode/
 .idea/

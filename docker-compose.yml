@@ -1,0 +1,59 @@
+# docker compose 是"交付形态"，本机开发请继续用 start.ps1（不需要 Docker）
+#
+#   docker compose up -d --build      # 首次启动（会拉 postgres / redis / nginx）
+#   docker compose logs -f api        # 看后端日志
+#   docker compose down -v            # 连数据卷一起清掉（会删库）
+#
+# 默认账号需要自己注册（首个注册的账号就是普通用户，v1.6 起没有角色概念）。
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: cbc
+      POSTGRES_PASSWORD: cbc_dev_password
+      POSTGRES_DB: cbc
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cbc -d cbc"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build: ./backend
+    environment:
+      CBC_DATABASE_URL: postgresql+psycopg://cbc:cbc_dev_password@db:5432/cbc
+      CBC_REDIS_URL: redis://redis:6379/0
+      CBC_JWT_SECRET: ${CBC_JWT_SECRET:-change-me-in-production-0123456789abcdef}
+      CBC_DATA_DIR: /data
+    volumes:
+      - appdata:/data
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+
+  web:
+    build: ./frontend
+    depends_on:
+      - api
+    ports:
+      - "5173:80"
+
+volumes:
+  pgdata:
+  appdata:

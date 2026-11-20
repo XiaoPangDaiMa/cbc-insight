@@ -82,6 +82,21 @@ $env:CBC_DATABASE_URL = "postgresql+psycopg://cbc:cbc@127.0.0.1:5432/cbc"
 切换后数据在 PG 实例里，`backend/data/` 下不会出现任何数据库文件；两种库的表结构由同一份
 SQLAlchemy 模型创建（`app/db/models.py`），换库不需要改代码。
 
+### 用 Docker 起（pg + redis + api + nginx 一次到位）
+
+```powershell
+cd cbc-insight
+copy .env.example .env      # 按需改 JWT_SECRET 与库密码；compose 会读取
+docker compose up -d --build
+# 前端 http://127.0.0.1:5173   后端 http://127.0.0.1:8000/docs
+docker compose down
+```
+
+- 镜像里装了 **Noto Sans CJK**：缺中文字体时 matplotlib 不会报错，只会把中文画成方框，
+  而这种问题只在导出报告时才会被发现（RK-05）。
+- `web` 用 nginx 托管 `dist`，`/api/` 反代到 `api:8000`，上传上限放到 60 MB（与后端 50 MB 对齐留余量）。
+- 程序**不读 `.env` 文件本身**，只读进程环境变量；`.env.example` 是给 compose 用的清单。
+
 ---
 
 ## 三、在 IDE 里打开（PyCharm / WebStorm）
@@ -214,32 +229,47 @@ ModuleNotFoundError: No module named 'app'
 ```text
 cbc-insight/
 ├─ start.bat / start.ps1 / stop.ps1     一键启动与停止
+├─ docker-compose.yml                   另一条起法：db + redis + api + web（见下）
+├─ .env.example                         docker / 生产用的环境变量清单
+├─ LICENSE                              MIT + 一段"不做诊断"的用途声明
 ├─ backend/
 │  ├─ app/
-│  │  ├─ api/v1/        auth · datasets · dashboard · reference
-│  │  ├─ core/          config · errors · security · deps
+│  │  ├─ api/v1/        auth · datasets · reports · compare · dashboard · ranges · reference
+│  │  ├─ core/          config · errors · security · deps · cache
 │  │  ├─ db/            base · models · session
 │  │  ├─ pipeline/      reading → mapping → units → validators → cleaning → rules → stats → captions
 │  │  ├─ schemas/       pydantic 请求/响应
-│  │  └─ services/      pipeline_runner · datasets · chart · loader
+│  │  └─ services/      pipeline_runner · datasets · chart · quality_chart · render · report
+│  │                    compare · ranges_service · loader
 │  ├─ resources/        reference_ranges.yaml · field_dict.yaml · field_mapping.yaml
-│  │                    cleaning_strategy.yaml · caption_templates.yaml · cbc.mplstyle(生成)
-│  ├─ tests/            BR 规则单测 + 管线夹具 + 接口级回归（110 用例）
+│  │                    cleaning_strategy.yaml · caption_templates.yaml
+│  │                    report_template.html.j2
+│  │                    cbc.mplstyle + theme.json（scripts/gen_theme.py 生成，勿手改）
+│  ├─ tests/            BR 规则单测 + 管线夹具 + 接口级回归（166 用例）
 │  ├─ data/             raw · processed · rendered · reports + app.db（运行时生成）
 │  ├─ .venv/            Python 依赖（与 requirements.txt 同级，跟后端一起搬走即可）
+│  ├─ Dockerfile        python:3.13-slim + Noto CJK 字体
 │  └─ requirements.txt
 ├─ frontend/
 │  ├─ src/
 │  │  ├─ api/           client · hooks · types（与 8.1 API 一一对应）
 │  │  ├─ auth/          会话与路由守卫
 │  │  ├─ components/    StatusBadge · MetricCard · SampleProfile · DatasetCard · EChart · Layout
-│  │  ├─ lib/           format（4.4.6 数字规则）· colors（从 CSS 变量取色）
-│  │  ├─ pages/         Login · Register · Dashboard · DatasetDetail · ExportCenter · Account
+│  │  │                 FilterPanel · AnomalyPanel · RangesPanel · QualityPanel
+│  │  ├─ lib/           format（4.4.6 数字规则）· colors（从 CSS 变量取色）· useExport
+│  │  ├─ pages/         Login · Register · Dashboard · DatasetDetail · Compare
+│  │  │                 ReferenceRanges · ExportCenter · Account
 │  │  └─ theme/         tokens.json（唯一配色来源）+ 生成产物
-│  └─ tests/            unit（不进 src/，NFR-M-08）
+│  ├─ tests/            unit / integration / e2e（都不进 src/，NFR-M-08）
+│  ├─ Dockerfile        构建 dist → nginx:1.27-alpine 托管
+│  └─ nginx.conf        SPA 回退 + /api 反代 + 60MB 上传上限
 ├─ scripts/             根级工具（跨前后端，不属于任何一边）
-│  ├─ gen_theme.py       tokens.json → CSS 变量 / ECharts 主题 / matplotlib rcParams
-│  └─ smoke_local.py     TestClient 冒烟：注册→上传→图表→导出→删除
+│  ├─ gen_theme.py       tokens.json → CSS 变量 / ECharts 主题 / matplotlib rcParams / theme.json
+│  ├─ import_local.py    把手上的 CSV 走正式上传接口登记进库（不手改数据库）
+│  ├─ migrate_b3.py      老库迁移（补 ri_source/judged_at/ranges_snapshot + user_ranges 表 + 删 role）
+│  ├─ smoke_local.py     TestClient 冒烟：注册→上传→图表→导出→删除
+│  ├─ smoke_b3/b4/b5.py  真起服务后的接口级冒烟（区间/筛选/对比）
+│  └─ download_datasets.py  Kaggle 数据集下载与哈希校验（可选）
 └─ .run/                进程 PID（stop.ps1 用）
 ```
 
@@ -253,13 +283,16 @@ cbc-insight/
 
 ```powershell
 cd cbc-insight\backend
-.venv\Scripts\python.exe -m pytest -q        # 110 passed
-.venv\Scripts\ruff.exe check app tests       # All checks passed
+.venv\Scripts\python.exe -m pytest -q        # 166 passed
+.venv\Scripts\ruff.exe check app tests ..\scripts   # All checks passed
 
 cd ..\frontend
 pnpm exec tsc --noEmit                          # 类型检查
 pnpm exec vitest run tests/unit                 # 11 passed
-pnpm build                                      # 产出 dist/
+pnpm run build                                  # 产出 dist/
+
+cd ..\frontend
+pnpm run test:e2e                               # 一条主流程（需先 .\start.ps1）
 ```
 
 - 后端测试扁平放在 `backend/tests/`，**`app/` 下不出现 `test_*.py`**（NFR-M-08）；
@@ -267,6 +300,9 @@ pnpm build                                      # 产出 dist/
 - 前端单元测试在 `frontend/tests/unit/`，`src/` 下不出现 `*.test.tsx`。
   图表只断言传给 ECharts 的 `option` 对象，不比像素（像素比对会因为字体/dpi 差异常年变红，最后一定被删掉）。
 - 覆盖率门禁只对 `app/pipeline/` 与 `app/services/` 设 80%，路由层靠"每个端点三个用例"覆盖。
+- **E2E 只有一条**（T-37）：注册 → 上传夹具 → 出图 → 导出下载。它自己注册随机账号、用固定夹具，
+  不依赖演示数据；跑之前前端 5173 与后端 8000 要在跑（先 `.\start.ps1 -NoBrowser`）。
+  刻意**不铺开**成矩阵：界面会变，铺开的用例两周后就会被人加 `test.skip`，等于没有。
 
 ---
 
@@ -291,7 +327,7 @@ backend\.venv\Scripts\python.exe scripts\gen_theme.py --check  # 校验产物是
 | 层 | 谁能改 | 存哪 | 标识 |
 |---|---|---|---|
 | 默认 | 谁都不能改 | YAML（只读） | `default@2026.11.1` |
-| 我的 | 自己，整份 16 项一起存，**必须填理由** | 数据库 `user_ranges`（只追加，版本号 +1） | `user#v3` |
+| 我的 | 自己，整份 15 项一起存，**必须填理由** | 数据库 `user_ranges`（只追加，版本号 +1） | `user#v3` |
 | 临时 | 只在数据集详情「区间」tab 里试算 | 内存，不落库 | `temp#03bd4c2d1852` |
 
 - **改了区间不会自动重判**。旧判定还留在原地，页面顶部出现「按当前区间重判」横幅；
@@ -317,7 +353,7 @@ backend\.venv\Scripts\python.exe scripts\gen_theme.py --check  # 校验产物是
 | FR-04 校验 | DQ-01~06、值域/重复/逻辑一致性（`\|hct − rbc×mcv/10\|/hct > 15%`） |
 | FR-05 清洗 | 类型修复 → 置空 → 剔列（核心三字段豁免）→ 去重 → 逻辑置空 → 删全空行 → 分组中位数填充 |
 | FR-06 对比 | 清洗前后行数、按原因计数的删除明细 |
-| FR-07~13 图 | 箱线（按性别分组 + 两组参考带）、直方（区间内外占比）、相关热力（Spearman + 数学耦合标注）、散点 |
+| FR-07~13 图 | 箱线（按性别分组 + 两组参考带）、直方（区间内外占比）、相关热力（Spearman + 数学耦合标注）、散点、**质量图（完整率条形 + DQ-01~06 + 剔除原因饼图，三块同屏）** |
 | FR-14 筛选 | 指标阈值（< / ≤ / > / ≥ / 介于 / =）+ 性别 + 年龄区间，条件之间是"与"；命中数与导出行数同源 |
 | FR-15 筛选视图 | 分页表格（20 行/页），条件回显，0 命中给空态而不是空白页 |
 | FR-16/17 判定 | 11 种模式 + `UNCLASSIFIED` 兜底、严重度排序；`gender` 缺失判 `NA`，不套男性区间；`unified_ranges` 显式开关（用户勾选才按统一区间判，结果标 `unified`） |
@@ -333,10 +369,10 @@ backend\.venv\Scripts\python.exe scripts\gen_theme.py --check  # 校验产物是
 
 ## 八、还没做
 
-- FR-13 质量图（P2）。
-- Playwright E2E（只做一条主流程）、前端集成测试（`frontend/tests/integration/` 目前是空的）。
-- Redis 缓存与队列：当前 10 万行以内走同步链路（实测 19.4 s），超过 `sync_clean_budget_seconds` 再接 RQ。
-- PDF 解析（FR-26）、跨数据集统计推断（v2，且须先论证可比性）、审计日志（FR-25）。
+- 前端集成测试（`frontend/tests/integration/` 目前是空的；E2E 已有且只有一条主流程）。
+- Redis 队列：目前 10 万行以内走同步链路（实测 19.4 s），超过 `sync_clean_budget_seconds` 才需要 RQ。
+  结果缓存已接（`app/core/cache.py`：键里含 `dataset_id` 与判定口径，没配 Redis 时自动退化为进程内缓存）。
+- PDF 上传解析（FR-26）、跨数据集统计推断（v2，且须先论证可比性）、审计日志（FR-25）、术语表（FR-27）。
 
 ---
 

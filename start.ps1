@@ -130,6 +130,6 @@ Write-Host "==============================================" -ForegroundColor Dar
 Write-Host " CBC Insight 已启动" -ForegroundColor White
 Write-Host "   前端  $webUrl" -ForegroundColor White
 Write-Host "   后端  $apiUrl/docs" -ForegroundColor White
-Write-Host "   演示账号  demo_student / demo-2026-pass" -ForegroundColor DarkGray
+Write-Host "   首次使用  打开页面直接注册账号（无邮箱，找回密码见 README）" -ForegroundColor DarkGray
 Write-Host "   停止服务  .\stop.ps1" -ForegroundColor DarkGray
 Write-Host "==============================================" -ForegroundColor DarkGray

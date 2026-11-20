@@ -159,18 +159,29 @@ export interface ChartPoint {
 }
 
 export interface ChartPayload {
-  kind: "box" | "hist" | "corr" | "scatter";
-  metric: string;
+  /** `quality` 是质量图（FR-13）：它没有单一指标，也不返回点位。 */
+  kind: "box" | "hist" | "corr" | "scatter" | "quality";
+  metric: string | null;
   title: string;
   unit: string;
-  echarts_option: Record<string, unknown>;
+  echarts_option?: Record<string, unknown>;
   points: ChartPoint[];
   sampled: boolean;
   caption: string;
   caption_branch: string;
   supporting: Record<string, unknown>;
+  /** 质量图专属：完整率 / DQ 评分 / 剔除原因三块独立的图，纵向排列 */
+  panels?: ChartPanel[];
   /** 这张图是按哪套区间画出来的（3.5.1）。trial=true 表示用户正在试算，未保存。 */
   ri_effective?: RangesEffective;
+}
+
+/** 质量图的一个 panel（FR-13） */
+export interface ChartPanel {
+  id: "completeness" | "dq" | "removed";
+  title: string;
+  unit: string;
+  echarts_option: Record<string, unknown>;
 }
 
 /** 一层区间的身份：默认表 / 我的第 n 版 / 一次临时试算。 */
