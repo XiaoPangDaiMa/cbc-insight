@@ -221,7 +221,7 @@ function Cell({ cell, decimals, unit }: { cell: CompareCell; decimals: number; u
     <div className="flex flex-col gap-1">
       <div style={{ color: "var(--color-text-primary)" }}>
         中位 {fmtNumber(cell.median, decimals)}
-        {unit}
+        {unit ? ` ${unit}` : ""}
         <span className="ml-1" style={{ color: "var(--color-text-muted)" }}>
           （n = {fmtCount(cell.n)}
           {cell.missing > 0 ? `，缺 ${fmtCount(cell.missing)}` : ""}）
