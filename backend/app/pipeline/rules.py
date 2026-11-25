@@ -291,9 +291,54 @@ def flag_frame(
     # 注意：不能用 `ranges.interval(m)` 判可用性——它对性别依赖指标在没有 gender 时
     # 返回 None（BR-17），会把 hgb/rbc/hct 整列漏掉。这里只问"配置里有没有这个指标"。
     wanted = metrics or tuple(m for m in frame.columns if m in ranges.default)
+    # 清洗后一行不剩（例如所有指标列装的都是"正常/阴性"这类文本）时，逐行实现会返回
+    # 一个**没有列名**的空 DataFrame，下游 metric_overview 的 long["metric"] 直接抛
+    # KeyError，最终变成 500。用户该看到的是"这份数据没通过质量校验"，不是"服务器错误"，
+    # 所以空表也必须带正规列名。
+    if frame.empty:
+        return _empty_long(), _empty_summary()
     if len(frame) >= BULK_FLAG_MIN_ROWS:
         return _flag_frame_bulk(frame, ranges, wanted, unified)
     return _flag_frame_rows(frame, ranges, wanted, unified)
+
+
+LONG_COLUMNS = (
+    "sample_index",
+    "gender",
+    "age",
+    "metric",
+    "value",
+    "low",
+    "high",
+    "unit",
+    "status",
+    "deviation_pct",
+    "pos",
+    "reason",
+    "ri_source",
+)
+
+SUMMARY_COLUMNS = (
+    "sample_index",
+    "gender",
+    "age",
+    "pattern",
+    "patterns",
+    "severity",
+    "n_abnormal",
+    "abnormal_metrics",
+    "na_metrics",
+    "gender_missing",
+    "ri_unified",
+)
+
+
+def _empty_long() -> pd.DataFrame:
+    return pd.DataFrame({column: pd.Series(dtype="object") for column in LONG_COLUMNS})
+
+
+def _empty_summary() -> pd.DataFrame:
+    return pd.DataFrame({column: pd.Series(dtype="object") for column in SUMMARY_COLUMNS})
 
 
 BULK_FLAG_MIN_ROWS = 2000

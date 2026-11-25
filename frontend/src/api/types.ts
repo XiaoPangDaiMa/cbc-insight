@@ -8,7 +8,6 @@ export type MetricStatusSummary = "LOW" | "NORMAL" | "HIGH" | "NA" | "MIXED";
 export interface AuthTokens {
   user_id: string;
   username: string;
-  role: string;
   access_token: string;
   refresh_token: string;
   token_type: string;
@@ -17,7 +16,6 @@ export interface AuthTokens {
 export interface UserPayload {
   user_id: string;
   username: string;
-  role: string;
   created_at: string;
   last_login_at: string | null;
 }
@@ -36,7 +34,9 @@ export interface DatasetPayload {
   original_filename: string;
   rows: number;
   columns: number;
-  status: "uploaded" | "cleaned" | "failed";
+  /** rejected：清洗后不满足可用性闸（行数/核心字段可解析比例/有效指标数），
+   * 只保留质量报告，任何"出结论"的入口都会被后端拒绝（42201）。 */
+  status: "uploaded" | "cleaned" | "failed" | "rejected";
   ri_version: string;
   /** 判定口径：user#v3 / default@2026.11.1 / unified@… —— 列表页与对比页都要显示 */
   ri_source?: string;

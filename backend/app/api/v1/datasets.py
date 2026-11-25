@@ -579,6 +579,7 @@ def rejudge(
     """
     # 统一口径的数据集不参与"我的区间"：它判的是"没有性别信息时的通用值"，
     # 让个人区间覆盖它会把"用户声明"和"个人口径"两件事搅在一起
+    svc.ensure_usable(dataset)
     eff = ranges_service.default_effective() if dataset.unified_ranges else ranges_service.effective(db, user)
     result = rejudge_pipeline(
         dataset.id,

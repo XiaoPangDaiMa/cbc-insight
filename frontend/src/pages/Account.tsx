@@ -66,8 +66,8 @@ export function Account() {
         <dl className="mt-2 grid grid-cols-2 gap-1 text-[12px]" style={{ color: "var(--color-text-secondary)" }}>
           <dt style={{ color: "var(--color-text-muted)" }}>用户名</dt>
           <dd>{me.data?.username ?? session?.username ?? "—"}</dd>
-          <dt style={{ color: "var(--color-text-muted)" }}>角色</dt>
-          <dd>{me.data?.role ?? session?.role ?? "—"}</dd>
+          <dt style={{ color: "var(--color-text-muted)" }}>数据归属</dt>
+          <dd>仅本账号可见（v1.6 起没有角色之分）</dd>
           <dt style={{ color: "var(--color-text-muted)" }}>注册时间</dt>
           <dd>{fmtDateTime(me.data?.created_at)}</dd>
           <dt style={{ color: "var(--color-text-muted)" }}>最近登录</dt>

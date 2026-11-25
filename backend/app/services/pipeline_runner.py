@@ -116,7 +116,11 @@ def run_pipeline(
 
     # --- S1 读取 ---
     started = time.perf_counter()
-    reading = read_csv(csv_path)
+    reading = read_csv(
+        csv_path,
+        max_rows=settings.max_rows,
+        max_columns=settings.max_columns,
+    )
     frame = reading.frame
     _write_parquet(frame, work_dir / "raw.parquet", out, "raw")
     timings["S1_read"] = time.perf_counter() - started

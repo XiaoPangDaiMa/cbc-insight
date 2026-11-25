@@ -155,13 +155,20 @@ def test_box_caption_and_points(client: TestClient, auth: dict[str, str], upload
 
 
 def test_missing_gender_does_not_break_charts(client: TestClient, auth: dict[str, str]) -> None:
-    """T-34：没有 gender 列时箱线图降级为单组并标注，而不是 500。"""
+    """T-34：没有 gender 列时箱线图降级为单组并标注，而不是 500。
+
+    行数刻意给到 6 行：上传闸要求清洗后至少 5 行（`MIN_ROWS_AFTER_CLEAN`），
+    少于这个数连直方图都画不出，会被判为 rejected——那是另一条用例的事。
+    """
     csv = "\n".join(
         [
             "age,hgb,wbc,plt,mcv,mch,mchc",
             "21,140,6.1,210,88,29.5,330",
             "34,132,5.4,190,90,30.1,334",
             "47,151,7.2,260,86,28.9,325",
+            "29,118,5.9,205,92,27.8,318",
+            "53,146,8.4,240,84,30.6,340",
+            "38,124,4.8,175,95,28.2,322",
         ]
     )
     upload = client.post(
@@ -175,8 +182,11 @@ def test_missing_gender_does_not_break_charts(client: TestClient, auth: dict[str
     assert chart.status_code == 200
     body = chart.json()
     assert len(body["supporting"]["reference_bands"]) == 2
-    assert len(body["points"]) == 3
-    assert "按性别" not in body["caption"]
+    assert len(body["points"]) == 6
+    # 图注必须明确说"没按性别分组"，而不是默默按某一性别判了（BR-17）
+    caption = body["caption"]
+    assert "未按性别分组" in caption
+    assert "男 1" not in caption and "女 1" not in caption
 
 
 def test_export_preview_matches_download(client: TestClient, auth: dict[str, str], uploaded: dict) -> None:

@@ -22,6 +22,7 @@ from app.core.errors import AppError
 from app.db.models import Dataset, User
 from app.pipeline import stats as stats_mod
 from app.services import render
+from app.services.datasets import ensure_usable
 from app.services.loader import load_fields, load_reference_ranges
 from app.services.pipeline_runner import load_artifacts
 from app.services.report import build_report, save_report
@@ -129,6 +130,7 @@ def create_report(
     settings: Settings = Depends(get_settings),
 ) -> dict[str, Any]:
     """生成单文件 HTML 报告（图片 base64 内嵌），返回下载地址。"""
+    ensure_usable(dataset)
     path = save_report(dataset, settings=settings)
     return {
         "report_url": f"/api/v1/datasets/{dataset.id}/report.html",
@@ -143,6 +145,7 @@ def download_report(
     settings: Settings = Depends(get_settings),
 ) -> Response:
     """直接返回报告 HTML（不落盘也可用，便于演示时刷新即最新）。"""
+    ensure_usable(dataset)
     html_text = build_report(dataset, settings=settings)
     filename = f"{dataset.name}_分析报告_{datetime.now().strftime('%Y%m%d_%H%M')}.html"
     return _attachment(filename, html_text.encode("utf-8"), "text/html; charset=utf-8")
@@ -161,6 +164,7 @@ def export_chart_image(
     if kind not in IMAGE_KINDS:
         # 参数问题用 42201，不要用 40001（那是"文件编码无法识别"，会给出误导性的修复提示）
         raise AppError(42201, f"不支持的图表类型：{kind}")
+    ensure_usable(dataset)
     payload, stem = _render_chart(dataset, kind, metric, fmt)
     media_type = "image/png" if fmt == "png" else "image/svg+xml"
     stamp = datetime.now().strftime("%Y%m%d_%H%M")

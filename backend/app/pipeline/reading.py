@@ -65,8 +65,19 @@ def detect_delimiter(text: str) -> str:
     return best
 
 
-def read_csv(path: str | Path, *, nrows: int | None = None) -> ReadResult:
-    """读取 CSV，保留字符串原样（``12.3*``、``<0.5`` 这类脏值由 S4 处理）。"""
+def read_csv(
+    path: str | Path,
+    *,
+    nrows: int | None = None,
+    max_rows: int | None = None,
+    max_columns: int | None = None,
+) -> ReadResult:
+    """读取 CSV，保留字符串原样（``12.3*``、``<0.5`` 这类脏值由 S4 处理）。
+
+    ``max_rows`` / ``max_columns`` 是**配额闸**（C-02）：写在配置里却没人检查，
+    等于没有——一张五百万行的表会一路读进内存再慢慢跑死，用户只看到"卡住了"。
+    这里在读完之后立刻判，因为列数与行数只有读完才知道；先落盘再读的顺序不变。
+    """
     p = Path(path)
     if not p.exists():
         raise AppError(40401, detail=f"文件不存在：{p.name}")
@@ -96,6 +107,11 @@ def read_csv(path: str | Path, *, nrows: int | None = None) -> ReadResult:
     frame.columns = [str(c).strip() for c in frame.columns]
     if not list(frame.columns) or any(col == "" for col in frame.columns):
         raise AppError(40003, detail="存在空列名")
+
+    if max_columns is not None and len(frame.columns) > max_columns:
+        raise AppError(40002, detail=f"列数 {len(frame.columns)} 超过上限 {max_columns}")
+    if max_rows is not None and len(frame) > max_rows:
+        raise AppError(40002, detail=f"行数 {len(frame):,} 超过上限 {max_rows:,}")
 
     # 空白字符串 → NaN；单元格去首尾空格
     frame = frame.map(lambda v: v.strip() if isinstance(v, str) else v)

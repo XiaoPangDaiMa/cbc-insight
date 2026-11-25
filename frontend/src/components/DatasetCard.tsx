@@ -78,7 +78,9 @@ export function DatasetCard({
 
       {dataset.status !== "cleaned" && (
         <p className="text-[11px]" style={{ color: "var(--color-danger)" }}>
-          状态：{dataset.status}
+          {dataset.status === "rejected"
+            ? "未通过质量校验：可以查看质量报告，但不能分析或导出"
+            : `状态：${dataset.status}`}
         </p>
       )}
     </div>

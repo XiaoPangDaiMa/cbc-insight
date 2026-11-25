@@ -30,7 +30,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     saveSession({
       user_id: next.userId,
       username: next.username,
-      role: next.role,
       access_token: next.access,
       refresh_token: next.refresh,
       token_type: "bearer",

@@ -283,7 +283,7 @@ cbc-insight/
 
 ```powershell
 cd cbc-insight\backend
-.venv\Scripts\python.exe -m pytest -q        # 166 passed
+.venv\Scripts\python.exe -m pytest -q        # 175 passed
 .venv\Scripts\ruff.exe check app tests ..\scripts   # All checks passed
 
 cd ..\frontend
@@ -351,7 +351,7 @@ backend\.venv\Scripts\python.exe scripts\gen_theme.py --check  # 校验产物是
 
 | 需求 | 落地情况 |
 |---|---|
-| FR-01 上传 | 编码探测（UTF-8/-BOM/GBK/GB18030）、分隔符投票、哈希去重 409、体积/行数上限 |
+| FR-01 上传 | 编码探测（UTF-8/-BOM/GBK/GB18030）、分隔符投票、哈希去重 409、体积/行数/列数上限；扩展名 + magic bytes + NUL 字节检查；清洗后不达可用性门槛落 `status=rejected`（只能看质量报告，不能分析与导出） |
 | FR-02 映射 | 别名表 + 模糊匹配，必填字段缺失抛 40004，人工确认后重跑整条管线 |
 | FR-03 预览 | 分页 ≤100 行，带 `sample_index` 与 `age_band` |
 | FR-04 校验 | DQ-01~06、值域/重复/逻辑一致性（`\|hct − rbc×mcv/10\|/hct > 15%`） |
@@ -379,7 +379,7 @@ backend\.venv\Scripts\python.exe scripts\gen_theme.py --check  # 校验产物是
 
 ---
 
-## 九、五条实现与需求文档不一致的地方（待同步回 SRS）
+## 九、六条实现与需求文档不一致的地方（待同步回 SRS）
 
 1. **BR-07 / 5.1 缺兜底模式**：11 种模式之外，"1–2 项异常但不匹配任何模式"的样本无处归类。
    实现新增 `UNCLASSIFIED`（其他异常组合）；异常 ≥3 项仍归 `MULTI_ABNORMAL`。
@@ -397,6 +397,16 @@ backend\.venv\Scripts\python.exe scripts\gen_theme.py --check  # 校验产物是
 5. **`/ranges-snapshot` 多返回一个 `has_snapshot`**：B3 之前判定的老数据没有快照，
    "没有快照"与"不陈旧"是两件事——前者该提示"补建快照并重判"，后者才该说"口径一致"。
    这个字段未写进 SRS 8.1，建议补上。
+
+6. **SRS 没定义"传了一份不能用的数据"会发生什么**：8.3 的错误码里没有对应业务码
+   （`40903` 是区间版本冲突，实现里也没做 `base_version`），所以实现复用 `42201`，
+   并新增两个 SRS 未写的行为：
+   - 文件层闸门：扩展名白名单 `.csv/.txt` + magic bytes + NUL 字节检查 → `40003`；
+   - 配额闸：`CBC_MAX_ROWS`（默认 20 万）/`CBC_MAX_COLUMNS`（默认 60）真正生效 → `40002`；
+   - 可用性闸：清洗后行数 < 5、核心字段（`hgb/wbc/plt`）可解析比例 < 60%、或有效指标 < 3
+     时，数据集落库为 `status=rejected`（只保留质量报告），统计/图表/筛选/导出/报告
+     一律 `42201` 拒绝。
+   建议在 SRS 里补一条 BR（"不可用数据不得产出任何结论"）与 `status` 的新取值。
 
 ---
 
@@ -432,6 +442,15 @@ backend\.venv\Scripts\python.exe scripts\gen_theme.py --check  # 校验产物是
 **7. 十万行为什么要十几秒？**
 真实数据的耗时构成与优化前后对比写在 `docs/真实数据体检.md`：瓶颈原本在清洗去重与逐行判定，
 现在 S1–S7 合计约 19 s（其中 S7 统计 8 s 是 pandas 分组本身的开销）。超过 30 s 才需要考虑上队列。
+
+**8. 传错文件会怎样？——三道闸，各有各的报错。**
+- 文件层（`40003`）：只收 `.csv/.txt`；`.xlsx` 会提示"请在 Excel 里另存为 CSV"；改后缀也拦得住
+  （看 magic bytes 与 NUL 字节）。
+- 配额层（`40002`）：`CBC_MAX_ROWS`（默认 20 万行）/ `CBC_MAX_COLUMNS`（默认 60 列）真的会被检查。
+- 可用性层（`42201` + `status=rejected`）：清洗后行数 < 5、核心字段 `hgb/wbc/plt` 能解析成数值的比例
+  < 60%、或有效指标 < 3 时，数据集落库但只能看质量报告——统计、图表、筛选、导出、报告全部拒绝。
+  这一层专门拦"表头对得上、值却是『正常/阴性』"的数据：不拦的话，清洗会把值全置空，
+  系统会一本正经地输出"异常率 0%，全部正常"，比报错危险得多。
 
 ---
 

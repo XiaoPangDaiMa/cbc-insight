@@ -11,7 +11,6 @@ export interface Session {
   access: string;
   refresh: string;
   username: string;
-  role: string;
   userId: string;
 }
 
@@ -47,7 +46,6 @@ export function saveSession(tokens: AuthTokens): Session {
     access: tokens.access_token,
     refresh: tokens.refresh_token,
     username: tokens.username,
-    role: tokens.role,
     userId: tokens.user_id,
   };
   localStorage.setItem(TOKEN_KEY, JSON.stringify(session));

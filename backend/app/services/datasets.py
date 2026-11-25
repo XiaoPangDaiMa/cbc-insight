@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import Settings, get_settings
 from app.core.errors import AppError
+from app.core.jsonsafe import sanitize_json
 from app.db.models import Dataset, User, utcnow
 from app.pipeline.reference import ReferenceRanges
 from app.schemas.dataset import FilterClause
@@ -26,6 +27,95 @@ KIND_LABELS: dict[str, str] = {
     "stats": "描述统计",
     "filtered": "筛选结果",
 }
+
+#: 上传可用性闸：三个门槛都来自"这份数据还能不能得出结论"，而不是"够不够干净"。
+#: 行数下限取 5 而不是 10：连直方图都画不出的数据没有讨论价值（与 captions 的
+#: MIN_PLOT_N 一致），而"分组后 n<10 不做检验"已经由 BR-11 单独把关，不必在这里重复拦截。
+MIN_ROWS_AFTER_CLEAN = 5
+MIN_CORE_RATIO = 0.6
+MIN_METRICS_WITH_N = 3
+
+#: 只接受文本表格。特地在语义上区分"扩展名不对"与"其实是二进制/xlsx"，
+#: 因为后者的修复动作完全不同（另存为 CSV vs 换个文件）。
+ALLOWED_SUFFIXES = {".csv", ".txt"}
+BINARY_MAGIC = (b"PK\x03\x04", b"\x89PNG", b"\xff\xd8\xff", b"%PDF", b"GIF8", b"\x1f\x8b")
+
+
+def _check_upload_payload(filename: str, data: bytes) -> None:
+    """文件层闸门：扩展名 / magic bytes / NUL 字节。
+
+    只看扩展名不够（改个名就能过），只看 magic 也不够（.xlsx 与 .zip 同签名，
+    错误提示会误导人去解压）。两者都看，且提示语指向"下一步该做什么"。
+    """
+    suffix = Path(filename or "").suffix.lower()
+    if suffix and suffix not in ALLOWED_SUFFIXES:
+        if suffix in {".xlsx", ".xls"}:
+            raise AppError(40003, detail="这是 Excel 文件，请在 Excel 里「另存为 CSV」后再上传")
+        raise AppError(40003, detail=f"只接受 CSV 文件（当前后缀 {suffix}）")
+
+    head = data[:8192]
+    for magic in BINARY_MAGIC:
+        if head.startswith(magic):
+            raise AppError(40003, detail="这看起来是二进制文件或压缩包，请上传纯文本 CSV")
+    if b"\x00" in head:
+        raise AppError(40003, detail="文件里含 NUL 字节，不是纯文本 CSV")
+
+
+def _purge_artifacts(dataset_id: str, settings: Settings) -> None:
+    """删掉这个数据集在磁盘上的一切：原始 CSV 与 S1–S7 的中间产物。
+
+    为什么失败路径也要删：失败的原始文件留在 ``data/raw`` 里既没人会看，
+    也不会被任何人清理（``delete_dataset`` 只对列表里能点到的记录生效）。
+    反复失败上传会把磁盘喂饱，而界面上看不到是哪些文件占的。
+    """
+    raw = settings.raw_dir / f"{dataset_id}.csv"
+    raw.unlink(missing_ok=True)
+    shutil.rmtree(settings.processed_dir / dataset_id, ignore_errors=True)
+
+
+def _usability_reason(output: PipelineOutput) -> str | None:
+    """清洗完再判一次"这份数据能不能撑起结论"（不回滚、不猜测，只给原因）。
+
+    三条门槛的取值理由：
+    * 行数 < 5：连直方图都画不出来，任何"分布/检出率"的结论都站不住；
+    * 核心字段可解析比例 < 60%：典型情况是表头对上了、值却是"正常/阴性"这类文本，
+      清洗会把它们全部置空，S6 于是在**没有任何数据**的情况下输出"全部正常"——
+      一份看起来很干净、实际是空壳的报告，比报错危险得多；
+    * 有效指标 < 3：只剩一两个指标还能算，热力图与模式判定都失去意义。
+    """
+    rows = int(output.rows or 0)
+    if rows < MIN_ROWS_AFTER_CLEAN:
+        return f"清洗后只剩 {rows} 行，至少要 {MIN_ROWS_AFTER_CLEAN} 行才能做分布统计"
+
+    dq = (output.quality or {}).get("dq") or {}
+    core = dq.get("DQ-01")
+    if core is not None and float(core) < MIN_CORE_RATIO:
+        return (
+            f"核心字段（hgb / wbc / plt）只有 {float(core) * 100:.0f}% 能解析成数值，"
+            f"至少要 {MIN_CORE_RATIO * 100:.0f}%——请确认这些列里装的是数字，而不是'正常/阴性'之类的文字"
+        )
+
+    overview = (output.stats or {}).get("overview") or []
+    usable = [item for item in overview if int(item.get("n") or 0) >= MIN_ROWS_AFTER_CLEAN]
+    if len(usable) < MIN_METRICS_WITH_N:
+        return (
+            f"只有 {len(usable)} 个指标的有效样本达到 {MIN_ROWS_AFTER_CLEAN} 条，"
+            f"至少要 {MIN_METRICS_WITH_N} 个"
+        )
+    return None
+
+
+def ensure_usable(dataset: Dataset) -> None:
+    """被质量闸拦下的数据集，任何"出结论"的入口都要在这里止步。
+
+    集中成一处，是因为这类判断散落在每个端点里必然漏一个：
+    漏掉导出的结果就是"页面上说不可用、文件却照样能下"。
+    """
+    if dataset.status == "rejected":
+        raise AppError(
+            42201,
+            detail=dataset.error_message or "该数据集未通过质量校验，不能用于分析或导出",
+        )
 
 
 def save_upload(
@@ -55,6 +145,9 @@ def save_upload(
         raise AppError(41301, detail=f"当前 {len(data) / 1024 / 1024:.1f} MB")
     if not data.strip():
         raise AppError(40003, detail="文件为空")
+
+    # 文件层闸门：扩展名 + magic bytes（改个后缀就能过扩展名检查，所以两个都看）
+    _check_upload_payload(filename, data)
 
     digest = hashlib.sha256(data).hexdigest()
     existing = db.scalar(select(Dataset).where(Dataset.user_id == user.id, Dataset.sha256 == digest))
@@ -95,29 +188,52 @@ def save_upload(
         dataset.status = "failed"
         dataset.error_message = "管线执行失败"
         db.commit()
+        _purge_artifacts(dataset.id, settings)
         raise
     except Exception as exc:  # noqa: BLE001
         dataset.status = "failed"
         dataset.error_message = str(exc)[:500]
         db.commit()
+        _purge_artifacts(dataset.id, settings)
         raise AppError(50001, detail=str(exc)[:200]) from exc
+
+    # 可用性闸：清洗之后再判一次"这份数据能不能撑起结论"。
+    # 不通过时保留质量报告（用户要能看见为什么被拒），但清掉一切可用于出图的产物，
+    # 并把状态置为 rejected —— 之后的统计/图表/导出/报告全部在 ensure_usable 处止步。
+    reason = _usability_reason(output)
+    if reason is not None:
+        dataset.rows = output.rows
+        dataset.columns = output.columns
+        dataset.mapping = sanitize_json(output.mapping)
+        dataset.quality = sanitize_json(output.quality)
+        output.clean_report["health"] = output.health
+        dataset.clean_report = sanitize_json(output.clean_report)
+        dataset.status = "rejected"
+        dataset.error_message = reason
+        db.commit()
+        _purge_artifacts(dataset.id, settings)
+        raise AppError(
+            42201,
+            detail=reason,
+            extra={"dataset_id": dataset.id, "status": "rejected"},
+        )
 
     dataset.rows = output.rows
     dataset.columns = output.columns
     dataset.ri_version = output.ri_version
     dataset.ri_source = output.ri_source
     dataset.judged_at = utcnow()
-    dataset.ranges_snapshot = output.ranges_snapshot
+    dataset.ranges_snapshot = sanitize_json(output.ranges_snapshot)
     dataset.unified_ranges = unified_ranges
-    dataset.mapping = output.mapping
-    dataset.quality = output.quality
+    dataset.mapping = sanitize_json(output.mapping)
+    dataset.quality = sanitize_json(output.quality)
     output.clean_report["health"] = output.health
     # 各阶段耗时一并留档：NFR-P-01/02 的验收要能对着数字说话，而不是"感觉挺快"
     output.clean_report["timings"] = {k: round(v, 3) for k, v in output.timings.items()}
-    dataset.clean_report = output.clean_report
-    dataset.stats = output.stats
-    dataset.anomaly = output.anomaly
-    dataset.artifacts = output.artifacts
+    dataset.clean_report = sanitize_json(output.clean_report)
+    dataset.stats = sanitize_json(output.stats)
+    dataset.anomaly = sanitize_json(output.anomaly)
+    dataset.artifacts = sanitize_json(output.artifacts)
     dataset.status = "cleaned"
     db.commit()
     db.refresh(dataset)
@@ -207,6 +323,7 @@ def stage_frame(dataset: Dataset, stage: str = "cleaned") -> pd.DataFrame:
     ``stage=cleaned`` 才是后面所有统计、图表、判定的口径。
     """
     settings = get_settings()
+    ensure_usable(dataset)
     filename = "raw.parquet" if stage == "raw" else "clean.parquet"
     path = settings.processed_dir / dataset.id / filename
     if not path.exists():
@@ -215,6 +332,7 @@ def stage_frame(dataset: Dataset, stage: str = "cleaned") -> pd.DataFrame:
 
 
 def long_frame(dataset: Dataset) -> pd.DataFrame:
+    ensure_usable(dataset)
     frames = load_artifacts(dataset.id)
     long = frames.get("flagged")
     if long is None:
@@ -223,6 +341,7 @@ def long_frame(dataset: Dataset) -> pd.DataFrame:
 
 
 def summary_frame(dataset: Dataset) -> pd.DataFrame:
+    ensure_usable(dataset)
     frames = load_artifacts(dataset.id)
     summary = frames.get("summary")
     if summary is None:
