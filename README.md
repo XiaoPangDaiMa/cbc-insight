@@ -245,7 +245,7 @@ cbc-insight/
 │  │                    cleaning_strategy.yaml · caption_templates.yaml
 │  │                    report_template.html.j2
 │  │                    cbc.mplstyle + theme.json（scripts/gen_theme.py 生成，勿手改）
-│  ├─ tests/            BR 规则单测 + 管线夹具 + 接口级回归（166 用例）
+│  ├─ tests/            BR 规则单测 + 管线夹具 + 接口级回归（180 用例）
 │  ├─ data/             raw · processed · rendered · reports + app.db（运行时生成）
 │  ├─ .venv/            Python 依赖（与 requirements.txt 同级，跟后端一起搬走即可）
 │  ├─ Dockerfile        python:3.13-slim + Noto CJK 字体
@@ -283,7 +283,7 @@ cbc-insight/
 
 ```powershell
 cd cbc-insight\backend
-.venv\Scripts\python.exe -m pytest -q        # 175 passed
+.venv\Scripts\python.exe -m pytest -q        # 180 passed
 .venv\Scripts\ruff.exe check app tests ..\scripts   # All checks passed
 
 cd ..\frontend
@@ -357,7 +357,7 @@ backend\.venv\Scripts\python.exe scripts\gen_theme.py --check  # 校验产物是
 | FR-04 校验 | DQ-01~06、值域/重复/逻辑一致性（`\|hct − rbc×mcv/10\|/hct > 15%`） |
 | FR-05 清洗 | 类型修复 → 置空 → 剔列（核心三字段豁免）→ 去重 → 逻辑置空 → 删全空行 → 分组中位数填充 |
 | FR-06 对比 | 清洗前后行数、按原因计数的删除明细 |
-| FR-07~13 图 | 箱线（按性别分组 + 两组参考带）、直方（区间内外占比）、相关热力（Spearman + 数学耦合标注）、散点、**质量图（完整率条形 + DQ-01~06 + 剔除原因饼图，三块同屏）** |
+| FR-07~13 图 | 箱线（按性别分组 + 两组参考带，须端取 1.5×IQR、离群点画散点、轴窗口按 `Q3±3×IQR` 收住）、直方（区间内外占比，零值可单列一桶、长尾不撑满横轴）、相关热力（Spearman + 数学耦合标注）、散点、**质量图（完整率条形 + DQ-01~06 + 剔除原因饼图，三块同屏）** |
 | FR-14 筛选 | 指标阈值（< / ≤ / > / ≥ / 介于 / =）+ 性别 + 年龄区间，条件之间是"与"；命中数与导出行数同源 |
 | FR-15 筛选视图 | 分页表格（20 行/页），条件回显，0 命中给空态而不是空白页 |
 | FR-16/17 判定 | 11 种模式 + `UNCLASSIFIED` 兜底、严重度排序；`gender` 缺失判 `NA`，不套男性区间；`unified_ranges` 显式开关（用户勾选才按统一区间判，结果标 `unified`） |
@@ -451,6 +451,17 @@ backend\.venv\Scripts\python.exe scripts\gen_theme.py --check  # 校验产物是
   < 60%、或有效指标 < 3 时，数据集落库但只能看质量报告——统计、图表、筛选、导出、报告全部拒绝。
   这一层专门拦"表头对得上、值却是『正常/阴性』"的数据：不拦的话，清洗会把值全置空，
   系统会一本正经地输出"异常率 0%，全部正常"，比报错危险得多。
+
+**9. 箱线图上的橙点是什么？为什么 y 轴不画到最大值？**
+橙点是**离群点**（超出 `Q1−1.5×IQR` ~ `Q3+1.5×IQR` 的观测值），不是错误数据，按 BR-06 一律保留。
+y 轴窗口由 `Q3±3×IQR` 决定：如果让一个 34% 的嗜碱性粒细胞值把轴拉满，箱体（Q1–Q3）会被压成一条线，
+看图的人会以为"这组全是 0"。窗口外的点不画，但个数与最大值写在图内副标题里
+（例如"离群点 2865 个，其中 1010 个超出显示范围未画出（最大 35.4）"）——图可以裁，数据不能少报。
+
+**10. 直方图为什么只显示到某个值？第一根柱子为什么特别高？**
+同一把尺子：窗口 = `Q3±3×IQR`，覆盖不到的部分（通常是长尾）单独计数并写在副标题里。
+如果某个指标有大量**恰好为 0** 的样本（`baso_pct` 有 96%），零值会被单列成"0"一桶，
+否则等宽分箱会让第一桶吃掉九成样本、后面 19 桶全空，等于没画。
 
 ---
 
