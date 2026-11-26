@@ -22,7 +22,13 @@ from app.db.base import Base
 config = context.config
 
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # disable_existing_loggers=False 是必须的（v1.8 的踩坑记录）：
+    # 后端启动时会先跑一次 ``alembic upgrade head``（db/session.py::run_migrations），
+    # 而 ``fileConfig`` 默认会把"已存在的 logger"全部关掉——uvicorn 的
+    # ``Application startup complete.`` 与 ``Uvicorn running on ...`` 正好是
+    # 那之后才打印的，于是控制台看起来"卡在 alembic 那两行不动"，
+    # 其实服务早就正常起来了（端口在听、/healthz 返回 200），只是这行日志被吞了。
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 target_metadata = Base.metadata
 
