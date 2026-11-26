@@ -69,10 +69,18 @@ def test_three_unmatched_abnormalities_fall_back_to_multi(ranges):
     assert patterns == [Pattern.MULTI_ABNORMAL]
 
 
-def test_one_or_two_unmatched_abnormalities_are_unclassified(ranges):
-    """5.1 的兜底缺口：1–2 项异常且不匹配任何模式时不得硬塞 MULTI_ABNORMAL。"""
-    assert _patterns(ranges, hct=52.0) == [Pattern.UNCLASSIFIED]
-    assert _patterns(ranges, hct=52.0, rdw=17.0) == [Pattern.UNCLASSIFIED]
+def test_one_unmatched_abnormality_is_single(ranges):
+    """1 项异常且不匹配任何模式：单列成 SINGLE_ABNORMAL，不硬塞 MULTI_ABNORMAL。"""
+    assert _patterns(ranges, hct=52.0) == [Pattern.SINGLE_ABNORMAL]
+
+
+def test_two_unmatched_abnormalities_are_mixed(ranges):
+    """2 项异常且不匹配任何组合：MIXED_ABNORMAL（与单项异常分开统计）。"""
+    assert _patterns(ranges, hct=52.0, rdw=17.0) == [Pattern.MIXED_ABNORMAL]
+
+
+def test_single_and_mixed_labels_differ(ranges):
+    assert Pattern.SINGLE_ABNORMAL.text_cn != Pattern.MIXED_ABNORMAL.text_cn
 
 
 def test_detect_patterns_ignores_na(ranges):

@@ -109,6 +109,8 @@ class Validated:
     logic_violations: tuple[int, ...] = ()
     duplicate_rows: tuple[int, ...] = ()
     missing_columns: dict[str, int] = field(default_factory=dict)
+    #: 每条恒等式各违反了哪些行，键是被"证伪"的那个字段（BR-05 + 两条派生理）
+    identity_violations: dict[str, tuple[int, ...]] = field(default_factory=dict)
 
     def dirty_rows(self) -> set[int]:
         rows: set[int] = set(self.duplicate_rows)
@@ -186,20 +188,56 @@ def find_duplicates(frame: pd.DataFrame) -> tuple[int, ...]:
     return tuple(int(i) for i in frame.index[duplicated])
 
 
-def find_logic_violations(numeric: pd.DataFrame) -> tuple[int, ...]:
-    """BR-05：``|hct − rbc × mcv / 10| / hct > 15%`` → hct 置空。
+IDENTITY_RULES: tuple[tuple[str, tuple[str, ...], str], ...] = (
+    # (被证伪的字段, 计算它需要的字段, 现象描述)
+    ("hct", ("hct", "rbc", "mcv"), "HCT 与 RBC×MCV/10 偏差超过 15%"),
+    ("mch", ("mch", "hgb", "rbc"), "MCH 与 HGB/RBC 偏差超过 15%"),
+    ("mchc", ("mchc", "hgb", "hct"), "MCHC 与 HGB/HCT 偏差超过 15%"),
+)
+"""三条恒等式：HCT≈RBC×MCV/10、MCH=HGB/RBC、MCHC=HGB/HCT。
 
-    仅在三字段齐全且 hct > 0 时计算；不齐全不判（不是违规，是"无法判"）。
+以前只查第一条。MCH 与 MCHC 是**定义式**，只要 HGB/RBC/HCT 里有一个数错（或整列
+错位一格），它们立刻对不上——这是抓"列错位"最便宜的办法：不用额外数据、不用模型。
+"""
+
+IDENTITY_TOLERANCE = 0.15
+
+
+def _identity_ratio(target: str, subset: pd.DataFrame) -> pd.Series:
+    """按恒等式算"实测值 / 应有值"，返回每个样本的偏差比例（非负）。"""
+    if target == "hct":
+        expected = subset["rbc"] * subset["mcv"] / 10
+    elif target == "mch":
+        expected = subset["hgb"] / subset["rbc"]
+    else:  # mchc：hct 是百分数，换算成小数
+        expected = subset["hgb"] / (subset["hct"] / 100)
+    actual = subset[target]
+    safe = expected.where(expected.abs() > 0, np.nan)
+    return ((actual - safe) / safe).abs()
+
+
+def find_logic_violations(numeric: pd.DataFrame) -> dict[str, tuple[int, ...]]:
+    """BR-05 + 两条派生理：逐条恒等式找出对不上的行。
+
+    返回 ``{被证伪的字段: (行号, ...)}``。只在所需字段齐全、且分母非零时计算；
+    不齐全不是违规，是"无法判"——把"无法判"当成"有问题"会凭空删掉正常数据。
     """
-    needed = {"hct", "rbc", "mcv"}
-    if not needed.issubset(set(numeric.columns)):
-        return ()
-    subset = numeric[["hct", "rbc", "mcv"]].dropna()
-    subset = subset[subset["hct"] > 0]
-    if subset.empty:
-        return ()
-    deviation = (subset["hct"] - subset["rbc"] * subset["mcv"] / 10).abs() / subset["hct"]
-    return tuple(int(i) for i in subset.index[deviation > 0.15])
+    violations: dict[str, tuple[int, ...]] = {}
+    for target, needed, _message in IDENTITY_RULES:
+        if not set(needed).issubset(set(numeric.columns)):
+            continue
+        subset = numeric[list(needed)].dropna()
+        if target == "hct":
+            subset = subset[subset["hct"] > 0]
+        else:
+            subset = subset[subset["rbc"] > 0] if target == "mch" else subset[subset["hct"] > 0]
+        if subset.empty:
+            continue
+        ratio = _identity_ratio(target, subset)
+        rows = tuple(int(i) for i in subset.index[ratio > IDENTITY_TOLERANCE])
+        if rows:
+            violations[target] = rows
+    return violations
 
 
 def validate(
@@ -211,7 +249,8 @@ def validate(
     numeric, failed = parse_numeric(frame, fields)
     domain = find_domain_violations(numeric, fields)
     duplicates = find_duplicates(frame)
-    logic = find_logic_violations(numeric)
+    identity = find_logic_violations(numeric)
+    logic = tuple(sorted({row for rows in identity.values() for row in rows}))
 
     completeness: dict[str, float] = {}
     for column in frame.columns:
@@ -225,6 +264,7 @@ def validate(
         logic_violations=logic,
         duplicate_rows=duplicates,
         missing_columns={c: int(v) for c, v in frame.isna().sum().items()},
+        identity_violations=identity,
     )
     report = build_report(frame, fields, validated, unit_decisions)
     return validated, report
@@ -332,17 +372,20 @@ def build_report(
             )
         )
 
-    # --- 逻辑一致性（BR-05）---
-    if validated.logic_violations:
+    # --- 逻辑一致性（BR-05 + MCH/MCHC 两条派生理）---
+    for target, _needed, message in IDENTITY_RULES:
+        rows_hit = validated.identity_violations.get(target, ())
+        if not rows_hit:
+            continue
         issues.append(
             Issue(
                 code="BR-05",
-                field="hct",
+                field=target,
                 severity="ERROR",
-                count=len(validated.logic_violations),
-                rows=validated.logic_violations,
-                message=f"{len(validated.logic_violations)} 行 HCT 与 RBC×MCV/10 偏差超过 15%",
-                fix="hct 置空",
+                count=len(rows_hit),
+                rows=rows_hit,
+                message=f"{len(rows_hit)} 行 {message}",
+                fix=f"{target} 置空",
             )
         )
 

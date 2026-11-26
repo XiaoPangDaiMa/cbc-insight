@@ -174,11 +174,26 @@ def clean(
         removed["duplicate"] = len(validated.duplicate_rows)
         log.append(CleanLogEntry(4, "dedupe", None, len(validated.duplicate_rows), "全字段重复，保留首条"))
 
-    # --- 5. 逻辑一致性：hct 置空 ---
-    if validated.logic_violations and "hct" in frame.columns:
-        rows = [i for i in validated.logic_violations if i in frame.index]
-        frame.loc[rows, "hct"] = np.nan
-        log.append(CleanLogEntry(5, "logic_hct", "hct", len(rows), "HCT 与 RBC×MCV/10 偏差 > 15%，hct 置空"))
+    # --- 5. 逻辑一致性：被证伪的那一列置空 ---
+    # 三条恒等式各自指向不同字段（HCT / MCH / MCHC）：对不上的那个数不可信，
+    # 但另外两个是"证据"，不能一起删——否则连"哪里错了"都看不出来。
+    identity = getattr(validated, "identity_violations", {}) or {}
+    for target, rows_hit in identity.items():
+        if target not in frame.columns:
+            continue
+        rows = [i for i in rows_hit if i in frame.index]
+        if not rows:
+            continue
+        frame.loc[rows, target] = np.nan
+        log.append(
+            CleanLogEntry(
+                5,
+                f"identity_{target}",
+                target,
+                len(rows),
+                f"{target.upper()} 与派生公式偏差 > 15%，{target} 置空",
+            )
+        )
 
     # --- 6. 删除核心字段全空的行 ---
     present_core = [c for c in CORE_FIELDS if c in frame.columns]

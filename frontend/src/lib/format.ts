@@ -72,7 +72,9 @@ const PATTERN_TEXT: Record<string, string> = {
   LEUKOCYTOSIS: "白细胞偏高",
   LEUKOPENIA: "白细胞偏低",
   MULTI_ABNORMAL: "多项指标超出参考区间",
-  UNCLASSIFIED: "其他异常组合",
+  SINGLE_ABNORMAL: "单项指标超出参考区间",
+  MIXED_ABNORMAL: "两项指标超出参考区间",
+  UNCLASSIFIED: "其他异常组合（旧数据）",
 };
 
 export function patternLabel(pattern: string | null | undefined): string {

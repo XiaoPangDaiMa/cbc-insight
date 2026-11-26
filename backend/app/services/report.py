@@ -58,7 +58,9 @@ PATTERN_TEXT = {
     "LEUKOCYTOSIS": "白细胞与中性粒比例同时偏高",
     "LEUKOPENIA": "白细胞偏低",
     "MULTI_ABNORMAL": "多项异常（3 项及以上，未匹配特定组合）",
-    "UNCLASSIFIED": "其他异常组合（1–2 项，未匹配特定组合）",
+    "SINGLE_ABNORMAL": "单项异常（1 项超出参考区间，未匹配特定组合）",
+    "MIXED_ABNORMAL": "两项异常（2 项均超出，未匹配特定组合）",
+    "UNCLASSIFIED": "其他异常组合（v1.8 之前落库的旧值）",
     "NORMAL": "各项均在参考区间内",
 }
 
@@ -295,6 +297,66 @@ def build_report(dataset, *, settings: Settings | None = None) -> str:
         else ""
     )
 
+    snapshot = dataset.ranges_snapshot or {}
+    resolved_ri_version = dataset.ri_version or ranges.version
+    method_rows = [
+        {
+            "item": "数据来源",
+            "detail": (
+                f"{dataset.original_filename or dataset.name}（SHA-256 前 12 位 "
+                f"{(dataset.sha256 or '')[:12] or '未记录'}；"
+                f"许可：{(dataset.quality or {}).get('license') or '见数据集登记表'}）"
+            ),
+        },
+        {
+            "item": "处理链路",
+            "detail": (
+                "S1 读取（编码与分隔符探测）→ S2 字段映射与单位归一 → S3 质量校验 → "
+                "S4 清洗（越界置空 / 去重 / 缺失填充）→ S5 派生（年龄段、样本序号）→ "
+                "S6 逐指标对比参考区间 → S7 描述统计与检验。每一步的中间产物都落盘，可单独重跑。"
+            ),
+        },
+        {
+            "item": "判定口径",
+            "detail": (
+                f"参考区间 {resolved_ri_version}，{ri_source_text}"
+                + (f"，口径指纹 {snapshot.get('digest')}" if snapshot.get("digest") else "")
+                + (f"，判定于 {dataset.judged_at.strftime('%Y-%m-%d %H:%M')}" if dataset.judged_at else "")
+                + "。区间为闭区间：等于下限或上限都算在区间内。"
+            ),
+        },
+        {
+            "item": "缺失与不可判",
+            "detail": (
+                "核心字段缺失率过高的列不整列剔除；中位数填充只用于保持行完整，"
+                "填充值不参与判定与异常统计（BR-21）；性别缺失时 HGB/RBC/HCT 判为未判定，"
+                "不默认套用男性区间（BR-17）；未满 18 岁不套用成人区间（BR-22）。"
+            ),
+        },
+        {
+            "item": "样本量规则",
+            "detail": (
+                "组内样本量任一组不足 10 时不进行组间检验，报告中不出现 p 值；"
+                "少于 5 个样本不出箱线图与直方图（画出来会被当成结论）。"
+            ),
+        },
+        {
+            "item": "相关与检验",
+            "detail": (
+                "相关性使用 Spearman 秩相关（对偏态与离群值稳健）；|ρ| < 0.3 时不作解读；"
+                "指标之间的数学定义关系（MCH=HGB/RBC、MCHC=HGB/HCT、HCT≈RBC×MCV/10）"
+                "会在图中标注为数学耦合，不计为独立发现。组间比较使用 Mann-Whitney U 检验。"
+            ),
+        },
+        {
+            "item": "措辞约束",
+            "detail": (
+                "本报告只陈述「哪些指标超出参考区间」，不写「差异有统计学意义」这类判断语，"
+                "不出现病名，也不给出任何建议（完整的禁用词表见需求文档 BR-16）。"
+            ),
+        },
+    ]
+
     template = _environment(settings).get_template("report_template.html.j2")
     return template.render(
         dataset={
@@ -310,6 +372,7 @@ def build_report(dataset, *, settings: Settings | None = None) -> str:
         dq_rows=dq_rows,
         removed_rows=removed_rows,
         quality_block=quality_block,
+        method_rows=method_rows,
         na_note=na_note,
         unified_note=unified_note,
         ri_version=dataset.ri_version or ranges.version,

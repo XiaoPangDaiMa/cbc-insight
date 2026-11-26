@@ -171,6 +171,20 @@
   </section>
   {% endif %}
 
+  <section>
+    <h2>五、方法与口径</h2>
+    <p class="muted">这一节说明"上面的数字是怎么来的"。答辩、交作业、或别人质疑结论时，先看这里。</p>
+    <table>
+      <tr><th style="width: 22%">项目</th><th>说明</th></tr>
+      {% for row in method_rows %}
+      <tr>
+        <td>{{ row.item }}</td>
+        <td>{{ row.detail }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+  </section>
+
   <section class="disclaimer">
     <h2>免责声明</h2>
     <p>本报告由 CBC Insight 基于脱敏公开数据集（{{ dataset.license_note }}）自动生成，使用 {{ ri_version }} 版参考区间。系统只输出"实测值与参考区间的比较结果"，不提供任何疾病诊断、预测或治疗建议，不能替代执业医师的临床判断。</p>

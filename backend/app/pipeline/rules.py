@@ -36,8 +36,12 @@ class Pattern(StrEnum):
     LEUKOPENIA = "LEUKOPENIA"
     MULTI_ABNORMAL = "MULTI_ABNORMAL"
     NORMAL = "NORMAL"
-    # 5.1 的兜底缺口（1–2 项异常但匹配不上任何模式）：待 v1.6 补入 5.1 表
-    UNCLASSIFIED = "UNCLASSIFIED"
+    # 5.1 的兜底缺口拆成两档（v1.8，缺陷 P1-⑥）：
+    # 1 项异常最常见，且"只看一项"与"两项都对不上任何组合"是两种不同的东西——
+    # 合成一个 UNCLASSIFIED 会让 29% 的样本堆在同一个桶里，等于没有分类。
+    SINGLE_ABNORMAL = "SINGLE_ABNORMAL"
+    MIXED_ABNORMAL = "MIXED_ABNORMAL"
+    UNCLASSIFIED = "UNCLASSIFIED"  # 兼容旧数据：v1.8 之前落库的模式值
 
     @property
     def text_cn(self) -> str:
@@ -53,6 +57,8 @@ class Pattern(StrEnum):
             "LEUKOPENIA": "白细胞偏低",
             "MULTI_ABNORMAL": "多项异常",
             "NORMAL": "未见异常",
+            "SINGLE_ABNORMAL": "单项异常",
+            "MIXED_ABNORMAL": "两项异常（未匹配组合）",
             "UNCLASSIFIED": "其他异常组合",
         }[self.value]
 
@@ -279,9 +285,12 @@ def detect_patterns(flags: dict[str, MetricFlag]) -> list[Pattern]:
         return hits
     if len(abnormal) >= 3:
         return [Pattern.MULTI_ABNORMAL]
-    # 1–2 项异常但匹配不上任何模式：不硬塞 MULTI_ABNORMAL（那是"≥3 项"的语义），
-    # 落到 UNCLASSIFIED（待补入 5.1 表）
-    return [Pattern.UNCLASSIFIED]
+    # 1–2 项异常但匹配不上任何模式：不硬塞 MULTI_ABNORMAL（那是"≥3 项"的语义）。
+    # v1.8 起拆成两档——单项异常是最常见的一类（DS-02 里 1.8 万条），
+    # 与"两项都对不上任何组合"混在一个桶里，模式分布就没法读了。
+    if len(abnormal) == 1:
+        return [Pattern.SINGLE_ABNORMAL]
+    return [Pattern.MIXED_ABNORMAL]
 
 
 def severity_of(flags: dict[str, MetricFlag]) -> float:
@@ -750,7 +759,9 @@ def _flag_frame_bulk(
 
     abnormal_any = n_abnormal > 0
     fallback = np.where(
-        n_abnormal >= 3, Pattern.MULTI_ABNORMAL.value, Pattern.UNCLASSIFIED.value
+        n_abnormal >= 3,
+        Pattern.MULTI_ABNORMAL.value,
+        np.where(n_abnormal == 1, Pattern.SINGLE_ABNORMAL.value, Pattern.MIXED_ABNORMAL.value),
     )
     primary = np.where(abnormal_any, np.where(first_hit == "", fallback, first_hit), Pattern.NORMAL.value)
     patterns = np.where(abnormal_any, np.where(first_hit == "", fallback, joined), Pattern.NORMAL.value)
