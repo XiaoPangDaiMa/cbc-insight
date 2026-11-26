@@ -298,8 +298,14 @@ def box_chart(
     option: dict[str, Any] = {
         "title": {"text": f"{name_cn}（按性别分组）" if has_gender else f"{name_cn}（未按性别分组）"},
         "tooltip": {"trigger": "item"},
-        "grid": {"left": 56, "right": 24, "top": 76, "bottom": 48},
-        "xAxis": {"type": "category", "data": categories, "name": "分组", "nameLocation": "middle", "nameGap": 28},
+        # right 留 84 px：参考区间的文字说明放在绘制区**外侧**，不与右侧轴线/数据争位置
+        "grid": {"left": 56, "right": 84, "top": 76, "bottom": 56},
+        "xAxis": {
+            "type": "category",
+            "data": categories,
+            # 两行标签（组名 + n），没有 axisLabel.lineHeight 时第二行会挤到饼图上
+            "axisLabel": {"lineHeight": 15, "fontSize": 12},
+        },
         "yAxis": {"type": "value", "name": unit, "scale": True, "nameLocation": "end", "nameGap": 14},
         "series": [
             {
@@ -389,21 +395,18 @@ def box_chart(
         option["series"][0]["markLine"] = {
             "symbol": "none",
             "silent": True,
-            "label": {"position": "insideEndTop"},
+            # position=end + distance 把"男上限 175"这类说明排到绘制区右侧的空白里：
+            # 原来用 insideEndTop，文字压在右侧轴线上，四条线一多就糊成一片。
+            # 颜色不写死：ECharts 主题（tokens.generated）已定义 textStyle，字面色值会违反 NFR-M-07。
+            "label": {"position": "end", "distance": 6, "align": "left", "fontSize": 10},
             "data": lines,
         }
-    # 每组样本量标注（FR-09 要求"每组标注 n"）
-    option["graphic"] = [
-        {
-            "type": "text",
-            "left": "center",
-            "bottom": 8,
-            "style": {
-                "text": " / ".join(f"{categories[i]} n={groups[buckets[i][0]]['n']}" for i in range(len(buckets))),
-                "fontSize": 12,
-            },
-        }
-    ]
+    # 每组样本量写进类目标签（FR-09 要求"每组标注 n"）。
+    # 原来用 graphic 文本贴在 canvas 底部，会和 x 轴类目名、轴名叠在一起
+    # （"男 n=49 / 女 n=45" 被压成 "男 n≠49" 就是那次叠字），改成两行类目标签后
+    # n 永远跟着它所属的那一组走，窄屏也不会串位。
+    # 注意必须写回 option（option 里存的是旧列表的引用，重新绑定 categories 不会生效）。
+    option["xAxis"]["data"] = [f"{categories[i]}\nn={groups[buckets[i][0]]['n']}" for i in range(len(buckets))]
 
     points, sampled = _points(long, metric, settings.points_limit)
     return {

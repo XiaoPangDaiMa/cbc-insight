@@ -43,3 +43,6 @@ backend/.env
 
 # 注意：scripts/ 下的 gen_theme.py 与 smoke_local.py 是仓库的一部分，不要忽略它们；
 # 根目录 scripts/ 曾被我误当成"临时目录"，其实它是跨前后端的工具目录（见 README 第三节）。
+
+# 本地启动脚本的日志（含端口与路径，不必进版本库）
+backend/.start-*.log
