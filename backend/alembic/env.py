@@ -12,9 +12,9 @@ from __future__ import annotations
 
 from logging.config import fileConfig
 
-from alembic import context
 from sqlalchemy import engine_from_config, pool
 
+from alembic import context
 from app.core.config import get_settings
 from app.db import models  # noqa: F401  必须导入，模型才会注册到 metadata
 from app.db.base import Base
