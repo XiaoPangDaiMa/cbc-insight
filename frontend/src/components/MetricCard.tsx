@@ -70,7 +70,10 @@ export function MetricCard({
       <div className="mt-1 flex justify-between text-[11px]" style={{ color: "var(--color-text-muted)" }}>
         <span>偏低 {fmtPct(item.pct_low)}</span>
         <span>偏高 {fmtPct(item.pct_above)}</span>
-        <span>最大偏离 {fmtPercentValue(item.max_deviation_pct)}</span>
+        <span>
+          最大偏离 {item.max_deviation_capped ? "≥" : ""}
+          {fmtPercentValue(item.max_deviation_pct)}
+        </span>
       </div>
     </button>
   );

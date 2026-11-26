@@ -434,10 +434,15 @@ def hist_chart(
     metric: str,
     *,
     settings: Settings | None = None,
-    bins: int = 20,
+    bins: int | None = None,
     unit_log: list[str] | None = None,
 ) -> dict[str, Any]:
-    """FR-10 直方图：叠加参考区间线，并给出区间内外占比。"""
+    """FR-10 直方图：叠加参考区间线，并给出区间内外占比。
+
+    ``bins=None`` 时按样本量取 ``clamp(⌊√n⌋, 20, 48)``：固定 20 桶在 9.6 万行上会把
+    99% 的样本塞进前两根柱子，看不出分布形状；而在 20 行的小数据上开到 48 桶，每根柱子
+    平均不到一个样本，同样没有信息。
+    """
     settings = settings or get_settings()
     name_cn, unit = _meta(fields, metric)
     decimals = _decimals(fields, metric)
@@ -445,6 +450,9 @@ def hist_chart(
         values = pd.to_numeric(frame[metric], errors="coerce").dropna()
     else:
         values = pd.Series(dtype=float)
+
+    if bins is None:
+        bins = max(20, min(48, int(np.sqrt(max(len(values), 1)))))
 
     gender_dependent, bands = reference_bands(metric, ranges)
     total = int(values.size)

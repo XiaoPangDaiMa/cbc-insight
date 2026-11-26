@@ -220,6 +220,28 @@ def judge_metric(
     )
 
 
+def _minor_flag(
+    metric: str, gender: str | None, ranges: ReferenceRanges, *, unified: bool = False
+) -> MetricFlag:
+    """未成年人：给出"本该比哪条区间"，但状态判 NA（BR-22）。
+
+    保留 low/high/unit 是为了界面上还能说清"如果按成人表，它落在哪"，
+    而状态与异常率一律不参与——把 12 岁的 115 g/L 判成"偏低"才是真的错。
+    """
+    interval, reason = ranges.resolve(metric, gender, unified=unified)
+    return MetricFlag(
+        metric=metric,
+        value=None,
+        status=MetricStatus.NA,
+        low=interval.low if interval else None,
+        high=interval.high if interval else None,
+        unit=interval.unit if interval else "",
+        name_cn=interval.name_cn if interval else None,
+        reason="minor_age",
+        ri_source=ranges.source_of(metric, gender, unified=unified),
+    )
+
+
 def detect_patterns(flags: dict[str, MetricFlag]) -> list[Pattern]:
     """BR-07 + 5.1：按受影响指标集合映射模式，返回命中的全部模式（有序）。"""
     status = {m: f.status for m, f in flags.items()}
@@ -281,9 +303,13 @@ def judge_sample(
 ) -> SampleVerdict:
     wanted = metrics or tuple(values)
     filled = imputed or set()
+    minor = age is not None and age == age and age < MINOR_AGE
     flags: dict[str, MetricFlag] = {}
     for metric in wanted:
         if metric not in values and metric not in ranges.default:
+            continue
+        if minor:
+            flags[metric] = _minor_flag(metric, gender, ranges, unified=unified)
             continue
         flags[metric] = judge_metric(
             metric,
@@ -400,6 +426,9 @@ def _empty_long() -> pd.DataFrame:
 def _empty_summary() -> pd.DataFrame:
     return pd.DataFrame({column: pd.Series(dtype="object") for column in SUMMARY_COLUMNS})
 
+
+MINOR_AGE = 18.0
+"""BR-22：默认区间只适用于 18–120 岁。未成年人一律判 ``NA`` + ``minor_age``。"""
 
 BULK_FLAG_MIN_ROWS = 2000
 """超过这个行数走向量化判定。
@@ -565,6 +594,8 @@ def _flag_frame_bulk(
     )
     known = np.isin(gender, ("male", "female"))
     is_female = np.array([g == "female" for g in gender], dtype=bool)
+    # BR-22：默认区间是成人区间（18–120），18 岁以下一律不判定
+    minor = ~np.isnan(age) & (age < MINOR_AGE)
 
     blocks: list[pd.DataFrame] = []
     deviation_columns: list[np.ndarray] = []
@@ -609,13 +640,16 @@ def _flag_frame_bulk(
         above = np.where(usable, values > high, False)
         status[below] = MetricStatus.LOW.value
         status[above] = MetricStatus.HIGH.value
-        na = ~usable | blank
+        # BR-22：默认区间是成人区间（18–120 岁）。未成年人套成人区间会得出"一切正常"
+        # 的错结论，因此在拿到儿科区间之前一律判 NA，且不参与异常率。
+        na = ~usable | blank | minor
         status[na] = MetricStatus.NA.value
 
         reason = np.full(n, None, dtype=object)
         reason[blank & usable] = "missing_value"
         reason[~usable] = "gender_missing"
         reason[imputed_rows] = "imputed"
+        reason[minor] = "minor_age"
 
         width = high - low
         safe = np.where(width > 0, width, 1.0)

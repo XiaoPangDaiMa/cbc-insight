@@ -114,10 +114,22 @@ def test_hist_zero_bucket_and_display_window() -> None:
     assert "超出显示范围" in subtext
     assert "0 值单列一桶" in subtext
 
-    # 桶数 ≤ 设定的 20 + 零值桶，不会因为长尾炸成几十格
-    assert len(bins["labels"]) <= 21
+    # 桶数 = 按样本量算出的桶数 + 至多一个零值桶，不会因为长尾炸成几十格
+    expected_bins = max(20, min(48, int(len(values) ** 0.5)))
+    assert len(bins["labels"]) <= expected_bins + 1
     # 每个样本都有归属：桶内 + 窗口外 == 总样本数
     assert sum(bins["counts"]) + bins["outside_count"] == len(values)
+
+
+def test_hist_bins_scale_with_sample_size() -> None:
+    """桶数按 √n 取，并夹在 20–48 之间：小数据别碎成沙，大数据别挤成两根柱子。"""
+    small = [130.0 + index * 0.5 for index in range(100)]  # √100 = 10 → 夹到 20
+    _, hist_small = _charts("hgb", small)
+    assert len(hist_small["supporting"]["bins"]["labels"]) == 20
+
+    large = [130.0 + (index % 400) * 0.1 for index in range(5000)]  # √5000 ≈ 70 → 夹到 48
+    _, hist_large = _charts("hgb", large)
+    assert len(hist_large["supporting"]["bins"]["labels"]) == 48
 
 
 def test_hist_without_zero_inflation_keeps_full_range() -> None:

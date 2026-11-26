@@ -68,6 +68,14 @@ export interface MetricStatusItem {
   min: number | null;
   max: number | null;
   max_deviation_pct: number | null;
+  /** 原始偏离度（未封顶），排查与报告用 */
+  max_deviation_pct_raw?: number | null;
+  /** 原始值超过展示上限时为 true，界面显示"≥" */
+  max_deviation_capped?: boolean;
+  /** 实测值个数（不含中位数填充） */
+  n_observed?: number;
+  /** 被中位数填充的格子数（BR-21，不参与判定） */
+  n_imputed?: number;
   gender_dependent: boolean;
   ranges_by_gender: GenderBand[];
   status: MetricStatusSummary;

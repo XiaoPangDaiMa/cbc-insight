@@ -21,6 +21,8 @@ from app.pipeline.reference import MetricStatus
 
 MIN_GROUP_N = 10
 WEAK_RHO = 0.30
+MAX_DEVIATION_DISPLAY = 999.0
+"""展示层偏离度上限（百分比）。窄区间上偏离度可以到四位数，原样显示像是 bug。"""
 
 # BR-12：定义性相关（不是"发现"，是恒等式）
 DEFINED_COUPLINGS: dict[frozenset[str], str] = {
@@ -99,7 +101,12 @@ def metric_overview(
             series = series.where(keep)
         valid = series.dropna()
         deviation = long.loc[long["metric"] == metric, "deviation_pct"]
-        max_dev = float(deviation.max()) if len(deviation) else 0.0
+        raw_max_dev = float(deviation.max()) if len(deviation) else 0.0
+        # 窄区间会把偏离度放大到四位数（baso_pct 区间宽 1，一个 34.4% 就是 3440%）。
+        # 数字本身没错，但"最大偏离 3440%"读起来像 bug，所以展示层封顶并用 ≥ 表达；
+        # 原始值仍然给出，报告与排查要用它。
+        max_dev_capped = raw_max_dev > MAX_DEVIATION_DISPLAY
+        max_dev = min(raw_max_dev, MAX_DEVIATION_DISPLAY)
         gender_dependent, bands = reference_bands(metric, ranges)
         low = bands[0]["low"] if bands and not gender_dependent else None
         high = bands[0]["high"] if bands and not gender_dependent else None
@@ -134,6 +141,8 @@ def metric_overview(
                 "ranges_by_gender": bands,
                 "ri_source": ri_source,
                 "max_deviation_pct": round(max_dev, 2),
+                "max_deviation_pct_raw": round(raw_max_dev, 2),
+                "max_deviation_capped": max_dev_capped,
                 **_status_shares(long, metric, total),
             }
         )

@@ -51,7 +51,8 @@ class CompareRequest(BaseModel):
 class ChartRequest(BaseModel):
     metric: str | None = None
     metric_y: str | None = None
-    bins: int = 20
+    bins: int | None = None
+    """直方图桶数。``None`` = 由服务端按样本量决定（``clamp(√n, 20, 48)``）。"""
     stage: Literal["raw", "cleaned"] = "cleaned"
     filters: list[FilterClause] = Field(default_factory=list)
     #: 临时试算区间（FR-37）：``{"hgb": {"low": 120, "high": 170}}``，
