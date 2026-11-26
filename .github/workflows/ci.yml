@@ -74,13 +74,16 @@ jobs:
           --health-retries 10
     env:
       CBC_DATABASE_URL: postgresql+psycopg://cbc:cbc_dev_password@127.0.0.1:5432/cbc
-      # 测试不要往真实数据目录里写：用 runner 上的临时目录
-      CBC_DATA_DIR: ${{ runner.temp }}/cbc-data
     defaults:
       run:
         working-directory: backend
     steps:
       - uses: actions/checkout@v4
+
+      - name: 准备临时数据目录
+        # runner 上下文在 job 级 env 里不可用（会报 Unrecognized named-value: 'runner'），
+        # 只能在步骤里写进 GITHUB_ENV。测试会写 parquet 与报告，不该落进仓库。
+        run: echo "CBC_DATA_DIR=$RUNNER_TEMP/cbc-data" >> "$GITHUB_ENV"
 
       - name: 安装 uv
         uses: astral-sh/setup-uv@v5
