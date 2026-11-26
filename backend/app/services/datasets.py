@@ -9,6 +9,7 @@ import hashlib
 import shutil
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -321,14 +322,31 @@ def stage_frame(dataset: Dataset, stage: str = "cleaned") -> pd.DataFrame:
 
     ``stage=raw`` 读的是 S1 的原始列名版本，用于"清洗前后对比"（FR-06）；
     ``stage=cleaned`` 才是后面所有统计、图表、判定的口径。
+
+    清洗阶段按分组中位数填过的格子，在返回前**重新置空**（BR-21）：填充只服务于
+    "行不丢、可筛选"，一旦出现在预览或导出里，用户就会把它当实测值读，而它并不是。
     """
     settings = get_settings()
     ensure_usable(dataset)
     filename = "raw.parquet" if stage == "raw" else "clean.parquet"
-    path = settings.processed_dir / dataset.id / filename
+    directory = settings.processed_dir / dataset.id
+    path = directory / filename
     if not path.exists():
         raise AppError(40401, detail="数据集尚未完成清洗" if stage != "raw" else "数据集原始文件已丢失")
-    return pd.read_parquet(path)
+    frame = pd.read_parquet(path)
+
+    mask_path = directory / "imputed.parquet"
+    if stage != "raw" and mask_path.exists():
+        mask = pd.read_parquet(mask_path)
+        n = min(len(frame), len(mask))
+        for column in mask.columns:
+            if column not in frame.columns:
+                continue
+            filled = mask[column].to_numpy(dtype=bool)[:n]
+            values = frame[column].to_numpy(dtype=object)
+            values[:n] = np.where(filled, None, values[:n])
+            frame[column] = values
+    return frame
 
 
 def long_frame(dataset: Dataset) -> pd.DataFrame:

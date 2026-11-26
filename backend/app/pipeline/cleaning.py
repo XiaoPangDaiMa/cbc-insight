@@ -71,6 +71,13 @@ class CleanResult:
     removed_by_reason: dict[str, int] = field(default_factory=dict)
     dropped_columns: list[str] = field(default_factory=list)
     filled: dict[str, int] = field(default_factory=dict)
+    imputed: pd.DataFrame | None = None
+    """哪些格子是"填出来的"（BR-21）。
+
+    布尔矩阵，行与 ``frame`` 一一对应、列是被填充过的指标。它存在的唯一目的，是让
+    下游把"推断值"和"实测值"分开：填充值可以留在宽表里让行不丢，但**不得参与判定与
+    异常统计**——否则一份缺 10% 的数据，异常率会被中位数系统性稀释。
+    """
 
     @property
     def rows_removed(self) -> int:
@@ -222,10 +229,13 @@ def _fill_missing(
         c for c in frame.columns if c in fields.fields and fields.spec(c) and fields.spec(c).dtype == "float"
     ]
 
+    imputed = pd.DataFrame(False, index=frame.index, columns=numeric_columns, dtype=bool)
+
     for column in numeric_columns:
         missing = int(frame[column].isna().sum())
         if not missing:
             continue
+        gap = frame[column].isna()
         overall = frame[column].median()
         if group_keys:
             grouped = frame.groupby(group_keys, dropna=False)[column].transform("median")
@@ -234,6 +244,8 @@ def _fill_missing(
         still = int(frame[column].isna().sum())
         filled = missing - still
         if filled:
+            # 只记"真的被填上了"的格子：分组中位数缺失、整体中位数也缺失的那种仍然是空
+            imputed.loc[gap & frame[column].notna(), column] = True
             result.filled[column] = filled
             log.append(
                 CleanLogEntry(
@@ -241,7 +253,9 @@ def _fill_missing(
                     "fill_median",
                     column,
                     filled,
-                    f"按 {'+'.join(group_keys)} 中位数填充（整体中位数 {overall:.4g}）",
+                    f"按 {'+'.join(group_keys)} 中位数填充（整体中位数 {overall:.4g}）；"
+                    "填充值只用于保持行完整，不参与判定",
                 )
             )
+    result.imputed = imputed if bool(imputed.to_numpy().any()) else None
     return frame

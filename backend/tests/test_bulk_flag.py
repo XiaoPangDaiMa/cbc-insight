@@ -28,6 +28,7 @@ LONG_COLUMNS = [
     "pos",
     "reason",
     "ri_source",
+    "observed",
 ]
 SUMMARY_COLUMNS = [
     "sample_index",
@@ -83,8 +84,8 @@ def test_bulk_matches_rows(ranges, unified):
     long_rows, summary_rows = _flag_frame_rows(frame, ranges, wanted, unified)
     long_bulk, summary_bulk = _flag_frame_bulk(frame, ranges, wanted, unified)
 
-    assert list(long_bulk.columns) == LONG_COLUMNS
-    assert list(summary_bulk.columns) == SUMMARY_COLUMNS
+    assert list(long_bulk.columns) == list(LONG_COLUMNS)
+    assert list(summary_bulk.columns) == list(SUMMARY_COLUMNS)
 
     keys = ["sample_index", "metric"]
     assert_frame_equal(

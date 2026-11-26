@@ -83,8 +83,10 @@ class MetricFlag:
     deviation_pct: float = 0.0
     pos: float | None = None
     ratio_to_bound: float | None = None
-    reason: str | None = None  # gender_missing / no_interval / missing_value
+    reason: str | None = None  # gender_missing / no_interval / missing_value / imputed / minor_age
     ri_source: str = "default"  # default / female / unified（8.1 的 ri_source）
+    observed: bool = True
+    """``False`` 表示这个格子的数值是**填出来的**（中位数填充），不是实测（BR-21）。"""
 
     @property
     def abnormal(self) -> bool:
@@ -108,6 +110,8 @@ class MetricFlag:
             "missing": self.value is None,
             "reason": self.reason,
             "ri_source": self.ri_source,
+            "observed": self.observed,
+            "imputed": not self.observed,
         }
 
 
@@ -163,13 +167,31 @@ def judge_metric(
     ranges: ReferenceRanges,
     *,
     unified: bool = False,
+    imputed: bool = False,
 ) -> MetricFlag:
-    """单指标判定。``unified=True`` 时，缺性别的性别依赖指标改用统一区间（FR-16）。"""
+    """单指标判定。``unified=True`` 时，缺性别的性别依赖指标改用统一区间（FR-16）。
+
+    ``imputed=True`` 表示这个值是中位数填充出来的（BR-21）：可以出现在宽表里让行不丢，
+    但**不参与判定**——判成"正常"等于用推断值冒充实测值，会把异常率系统性稀释。
+    """
     interval, reason = ranges.resolve(metric, gender, unified=unified)
     source = ranges.source_of(metric, gender, unified=unified)
     if interval is None:
         return MetricFlag(
             metric=metric, value=value, status=MetricStatus.NA, reason=reason, ri_source=source
+        )
+    if imputed:
+        return MetricFlag(
+            metric=metric,
+            value=None,
+            status=MetricStatus.NA,
+            low=interval.low,
+            high=interval.high,
+            unit=interval.unit,
+            name_cn=interval.name_cn,
+            reason="imputed",
+            ri_source=source,
+            observed=False,
         )
     if value is None:
         return MetricFlag(
@@ -255,13 +277,22 @@ def judge_sample(
     ranges: ReferenceRanges,
     metrics: tuple[str, ...] | None = None,
     unified: bool = False,
+    imputed: set[str] | None = None,
 ) -> SampleVerdict:
     wanted = metrics or tuple(values)
+    filled = imputed or set()
     flags: dict[str, MetricFlag] = {}
     for metric in wanted:
         if metric not in values and metric not in ranges.default:
             continue
-        flags[metric] = judge_metric(metric, values.get(metric), gender, ranges, unified=unified)
+        flags[metric] = judge_metric(
+            metric,
+            values.get(metric),
+            gender,
+            ranges,
+            unified=unified,
+            imputed=metric in filled,
+        )
     verdict = SampleVerdict(
         sample_index=sample_index,
         gender=gender,
@@ -279,6 +310,7 @@ def flag_frame(
     *,
     metrics: tuple[str, ...] | None = None,
     unified: bool = False,
+    imputed: pd.DataFrame | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """对整个清洗后宽表做判定。
 
@@ -287,10 +319,14 @@ def flag_frame(
 
     ``unified=True`` 仅用于"数据集无性别、用户显式声明按统一区间判定"的场景（FR-16），
     受影响的指标会在长表 ``ri_source`` 列标成 ``unified``。
+
+    ``imputed`` 是清洗阶段留下的"填出来的格子"掩码（BR-21）：这些格子判为 ``NA``
+    + ``reason=imputed``，不计入异常率与检出率，也不会出现在图里。
     """
     # 注意：不能用 `ranges.interval(m)` 判可用性——它对性别依赖指标在没有 gender 时
     # 返回 None（BR-17），会把 hgb/rbc/hct 整列漏掉。这里只问"配置里有没有这个指标"。
     wanted = metrics or tuple(m for m in frame.columns if m in ranges.default)
+    mask = _imputed_mask(frame, wanted, imputed)
     # 清洗后一行不剩（例如所有指标列装的都是"正常/阴性"这类文本）时，逐行实现会返回
     # 一个**没有列名**的空 DataFrame，下游 metric_overview 的 long["metric"] 直接抛
     # KeyError，最终变成 500。用户该看到的是"这份数据没通过质量校验"，不是"服务器错误"，
@@ -298,8 +334,31 @@ def flag_frame(
     if frame.empty:
         return _empty_long(), _empty_summary()
     if len(frame) >= BULK_FLAG_MIN_ROWS:
-        return _flag_frame_bulk(frame, ranges, wanted, unified)
-    return _flag_frame_rows(frame, ranges, wanted, unified)
+        return _flag_frame_bulk(frame, ranges, wanted, unified, mask)
+    return _flag_frame_rows(frame, ranges, wanted, unified, mask)
+
+
+def _imputed_mask(
+    frame: pd.DataFrame, wanted: tuple[str, ...], imputed: pd.DataFrame | None
+) -> np.ndarray | None:
+    """把"填出来的格子"对齐成 ``n × len(wanted)`` 的布尔矩阵。
+
+    按**行序**对齐而不是按索引对齐：上游清洗会重排索引（删行、去重），而这里的
+    ``frame`` 与 ``imputed`` 在进入本函数前仍保持同一顺序；按位置对齐比按索引安全。
+    """
+    if imputed is None or imputed.empty:
+        return None
+    columns = [c for c in wanted if c in imputed.columns]
+    if not columns:
+        return None
+    aligned = np.zeros((len(frame), len(wanted)), dtype=bool)
+    values = imputed[columns].to_numpy(dtype=bool)
+    if values.shape[0] != len(frame):
+        # 行数对不上说明链路出了问题，宁可不标也不标错
+        return None
+    for column in columns:
+        aligned[:, wanted.index(column)] = values[:, columns.index(column)]
+    return aligned
 
 
 LONG_COLUMNS = (
@@ -316,6 +375,7 @@ LONG_COLUMNS = (
     "pos",
     "reason",
     "ri_source",
+    "observed",
 )
 
 SUMMARY_COLUMNS = (
@@ -355,6 +415,7 @@ def _flag_frame_rows(
     ranges: ReferenceRanges,
     wanted: tuple[str, ...],
     unified: bool,
+    mask: np.ndarray | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     long_rows: list[dict] = []
     summary_rows: list[dict] = []
@@ -364,6 +425,7 @@ def _flag_frame_rows(
         gender = row.get("gender") if "gender" in frame.columns else None
         age = row.get("age") if "age" in frame.columns else None
         values = {m: _as_float(row.get(m)) for m in wanted}
+        filled = set() if mask is None else {m for slot, m in enumerate(wanted) if mask[position, slot]}
         verdict = judge_sample(
             values,
             sample_index=index,
@@ -372,6 +434,7 @@ def _flag_frame_rows(
             ranges=ranges,
             metrics=wanted,
             unified=unified,
+            imputed=filled,
         )
         for flag in verdict.flags.values():
             long_rows.append(
@@ -389,6 +452,7 @@ def _flag_frame_rows(
                     "pos": flag.pos,
                     "reason": flag.reason,
                     "ri_source": flag.ri_source,
+                    "observed": flag.observed,
                 }
             )
         summary_rows.append(
@@ -474,6 +538,7 @@ def _flag_frame_bulk(
     ranges: ReferenceRanges,
     wanted: tuple[str, ...],
     unified: bool,
+    mask: np.ndarray | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """向量化判定：逐指标一次性算完，语义与 ``_flag_frame_rows`` 完全一致。
 
@@ -506,10 +571,11 @@ def _flag_frame_bulk(
     status_of: dict[str, np.ndarray] = {}
     unified_any = np.zeros(n, dtype=bool)
 
-    for metric in wanted:
+    for slot, metric in enumerate(wanted):
         base = ranges.default.get(metric)
         if base is None:
             continue
+        imputed_rows = mask[:, slot] if mask is not None else np.zeros(n, dtype=bool)
         # 依赖性别 = 没有性别时 resolve 拿不到区间
         dependent = ranges.resolve(metric, None, unified=False)[0] is None
         female_interval = ranges.female_overrides.get(metric) if dependent else None
@@ -534,6 +600,9 @@ def _flag_frame_bulk(
             high = np.where(usable, high, np.nan)
 
         values = pd.to_numeric(frame[metric], errors="coerce").to_numpy(dtype="float64")
+        # BR-21：填出来的格子当作"没有实测值"处理——否则缺失的中位数一填，样本就从
+        # "未知"变成"正常"，异常率被系统性稀释，而界面上看不出任何异常。
+        values = np.where(imputed_rows, np.nan, values)
         blank = np.isnan(values)
         status = np.full(n, MetricStatus.NORMAL.value, dtype=object)
         below = np.where(usable, values < low, False)
@@ -546,6 +615,7 @@ def _flag_frame_bulk(
         reason = np.full(n, None, dtype=object)
         reason[blank & usable] = "missing_value"
         reason[~usable] = "gender_missing"
+        reason[imputed_rows] = "imputed"
 
         width = high - low
         safe = np.where(width > 0, width, 1.0)
@@ -575,6 +645,7 @@ def _flag_frame_bulk(
                     "pos": position,
                     "reason": reason,
                     "ri_source": source,
+                    "observed": ~imputed_rows,
                 }
             )
         )
@@ -599,6 +670,7 @@ def _flag_frame_bulk(
                 "pos",
                 "reason",
                 "ri_source",
+                "observed",
             ]
         )
         status_matrix = np.zeros((n, 0), dtype=object)

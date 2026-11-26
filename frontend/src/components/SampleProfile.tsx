@@ -3,6 +3,15 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { fmtAge, fmtNumber, fmtRange, genderLabel } from "@/lib/format";
 import { statusColor } from "@/lib/colors";
 
+/** 未判定的原因，用一句人话说清楚"为什么这一项没有结论"。 */
+const REASON_TEXT: Record<string, string> = {
+  imputed: "未实测：该值由中位数填充补齐，不参与判定",
+  missing_value: "未实测：这一项没有数值",
+  gender_missing: "缺性别：该项参考区间分男女，无法判定",
+  no_interval: "无参考区间",
+  minor_age: "不满 18 岁：本表区间只适用于成人",
+};
+
 /** 单样本体检单（个体口径，FR-31）。
  *
  * 条长用的是**标准化位置** ``pos = (x − low) / (high − low)``，不是原始值：
@@ -58,9 +67,7 @@ export function SampleProfile({ profile }: { profile: SampleProfilePayload }) {
               </div>
               <div className="mt-0.5 flex justify-between text-[10px]" style={{ color: "var(--color-text-muted)" }}>
                 <span>参考 {fmtRange(item.low, item.high, item.decimals)}</span>
-                <span>
-                  {item.reason ? `未判定：${item.reason}` : item.pos === null ? "无参考区间" : `区间位置 ${(item.pos * 100).toFixed(0)}%`}
-                </span>
+                <span>{REASON_TEXT[item.reason ?? ""] ?? (item.pos === null ? "无参考区间" : `区间位置 ${(item.pos * 100).toFixed(0)}%`)}</span>
               </div>
             </li>
           );

@@ -173,9 +173,18 @@ def run_pipeline(
     clean_frame = add_sample_index(cleaned.frame)
     _write_parquet(clean_frame, work_dir / "clean.parquet", out, "clean")
 
+    # 填充掩码落盘（BR-21）：预览与导出要按它把这些格子显示为空，重判时也要能还原
+    # "哪些数值是填出来的"。掩码与 clean_frame 按行序对齐，不按索引。
+    imputed = cleaned.imputed
+    if imputed is not None and not imputed.empty:
+        mask_frame = imputed.reindex(index=clean_frame.index).reset_index(drop=True)
+        _write_parquet(mask_frame, work_dir / "imputed.parquet", out, "imputed")
+    else:
+        imputed = None
+
     # --- S6 判定 ---
     started = time.perf_counter()
-    long, summary = flag_frame(clean_frame, ranges, unified=unified_ranges)
+    long, summary = flag_frame(clean_frame, ranges, unified=unified_ranges, imputed=imputed)
     out.ri_version = ranges.version
     out.ri_source = f"unified@{ranges.version}" if unified_ranges else ri_source
     out.unified_ranges = unified_ranges
@@ -281,6 +290,8 @@ def rejudge(
     if not clean_path.exists():
         raise AppError(40401, detail="该数据集尚未清洗完成，无法重判")
     clean_frame = pd.read_parquet(clean_path)
+    imputed_path = work_dir / "imputed.parquet"
+    imputed_frame = pd.read_parquet(imputed_path) if imputed_path.exists() else None
 
     old_long: pd.DataFrame | None = None
     old_flag = work_dir / "flagged.parquet"
@@ -289,7 +300,9 @@ def rejudge(
 
     timings: dict[str, float] = {}
     started = time.perf_counter()
-    long, summary = flag_frame(clean_frame, ranges, unified=unified_ranges)
+    long, summary = flag_frame(
+        clean_frame, ranges, unified=unified_ranges, imputed=imputed_frame
+    )
     timings["S6_flag"] = time.perf_counter() - started
 
     anomaly = anomaly_summary(long, summary)
@@ -365,7 +378,7 @@ def load_artifacts(dataset_id: str, settings: Settings | None = None) -> dict[st
     settings = settings or get_settings()
     work_dir = settings.processed_dir / dataset_id
     frames: dict[str, pd.DataFrame] = {}
-    for key in ("clean", "flagged", "summary"):
+    for key in ("clean", "flagged", "summary", "imputed"):
         path = work_dir / f"{key}.parquet"
         if path.exists():
             frames[key] = pd.read_parquet(path)

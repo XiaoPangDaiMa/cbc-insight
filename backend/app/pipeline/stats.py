@@ -88,6 +88,15 @@ def metric_overview(
         if spec is None or not spec.is_metric or metric not in frame.columns:
             continue
         series = pd.to_numeric(frame[metric], errors="coerce")
+        # BR-21：填充出来的格子不算实测值——统计量（均值/中位数/四分位/极值）只用实测值，
+        # 否则"缺 10% 的数据"会被中位数悄悄补成一个看起来更漂亮的分布。
+        metric_rows = long.loc[long["metric"] == metric] if len(long) else long
+        imputed_rows = metric_rows.loc[metric_rows["reason"] == "imputed"] if len(metric_rows) else metric_rows
+        n_imputed = int(len(imputed_rows))
+        if n_imputed and "sample_index" in frame.columns:
+            filled_samples = set(imputed_rows["sample_index"].tolist())
+            keep = ~frame["sample_index"].isin(filled_samples)
+            series = series.where(keep)
         valid = series.dropna()
         deviation = long.loc[long["metric"] == metric, "deviation_pct"]
         max_dev = float(deviation.max()) if len(deviation) else 0.0
@@ -109,6 +118,8 @@ def metric_overview(
                 "unit": spec.unit,
                 "decimals": fields.decimals_of(metric),
                 "n": int(valid.size),
+                "n_observed": int(valid.size),
+                "n_imputed": n_imputed,
                 "missing": int(series.isna().sum()),
                 "mean": _f(valid.mean()),
                 "std": _f(valid.std(ddof=1)),
