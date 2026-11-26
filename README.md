@@ -95,7 +95,37 @@ docker compose down
 - 镜像里装了 **Noto Sans CJK**：缺中文字体时 matplotlib 不会报错，只会把中文画成方框，
   而这种问题只在导出报告时才会被发现（RK-05）。
 - `web` 用 nginx 托管 `dist`，`/api/` 反代到 `api:8000`，上传上限放到 60 MB（与后端 50 MB 对齐留余量）。
-- 程序**不读 `.env` 文件本身**，只读进程环境变量；`.env.example` 是给 compose 用的清单。
+- compose 的 `.env`（根目录）是给容器编排用的变量清单；后端自己的配置读 `backend/.env`，
+  两处不要混：前者的变量名是 `POSTGRES_*`/`JWT_SECRET`，后者是 `CBC_*`。
+
+### 用 WSL 里的 Postgres（本机开发现状，v1.8 起）
+
+开发机现在的连接串指向 WSL 里的 PostgreSQL 18（`ubuntu 26.04`），不再用 SQLite。
+
+```powershell
+# 1) 起库（WSL 里的 systemd 服务，开机自启一般已生效）
+wsl -u root -- service postgresql status
+
+# 2) 首次只做一次：建角色与库（用 peer 认证，不需要超级用户密码）
+wsl -u postgres -- psql -c "CREATE ROLE cbc LOGIN PASSWORD 'cbc_dev_password';"
+wsl -u postgres -- psql -c "CREATE DATABASE cbc OWNER cbc ENCODING 'UTF8' TEMPLATE template0;"
+
+# 3) 结构由 alembic 管（后端启动时也会自动 upgrade head）
+cd backend
+.venv\Scripts\python.exe -m alembic upgrade head
+.venv\Scripts\python.exe -m alembic check       # 期望 "No new upgrade operations detected"
+
+# 4) 把旧的 SQLite 数据搬过来（保留 dataset.id，因为磁盘目录用它命名）
+.venv\Scripts\python.exe ..\scripts\migrate_to_pg.py --target "postgresql+psycopg://cbc:cbc_dev_password@127.0.0.1:5432/cbc" --dry-run
+.venv\Scripts\python.exe ..\scripts\migrate_to_pg.py --target "postgresql+psycopg://cbc:cbc_dev_password@127.0.0.1:5432/cbc"
+```
+
+- 想退回 SQLite：把 `backend/.env` 里的 `CBC_DATABASE_URL` 换成 sqlite 那行（文件里已注释好）。
+  两套库的数据互不影响，切换后账号要重新注册。
+- WSL 关机后 Windows 侧连不上是正常的（`Test-NetConnection 127.0.0.1 -Port 5432` 会变 False），
+  `wsl -u root -- service postgresql start` 即可；后端连不上时 `pool_pre_ping` 会报"连接意外关闭"，
+  不是配置错。
+- 集成测试 `tests/test_pg_dialect.py` 跑在真库上时会**自己造行再删行**，不碰现有数据。
 
 ---
 
@@ -204,6 +234,9 @@ ModuleNotFoundError: No module named 'app'
 | `backend/`、`frontend/` | 两个真正的项目（后端的 `.venv` 与 `data` 都在它里面） | 见上 |
 | `backend/.venv/` | Python 依赖，与后端代码同目录 | 不要打开 |
 | `backend/data/` | 上传的原始件、每步中间结果（parquet/json）、默认 SQLite 库 | 排查数据问题时看 |
+| `backend/.env` | 本机配置（连接串、密钥）。**不进仓库**，从 `.env.example` 复制 | 换库/换端口时看 |
+| `backend/alembic/` | 数据库迁移脚本（v1.8 起），`alembic.ini` 在它旁边 | 改模型时才看 |
+| `scripts/migrate_to_pg.py` | 把 SQLite 开发库搬到 Postgres（保留原始 id） | 切库时跑一次 |
 | `.run/` | `start.ps1` 写下的进程 PID，`stop.ps1` 用 | 不要碰 |
 | `node_modules/`、`dist/` | 前端依赖与构建产物 | 不要打开 |
 
@@ -283,7 +316,7 @@ cbc-insight/
 
 ```powershell
 cd cbc-insight\backend
-.venv\Scripts\python.exe -m pytest -q        # 180 passed
+.venv\Scripts\python.exe -m pytest -q        # 197 passed（其中 4 条只在 Postgres 上跑）
 .venv\Scripts\ruff.exe check app tests ..\scripts   # All checks passed
 
 cd ..\frontend

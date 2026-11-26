@@ -36,5 +36,10 @@ frontend/.playwright/
 .DS_Store
 Thumbs.db
 
+# 本机配置：.env 里是数据库连接串与 JWT 密钥，绝不能进仓库；.env.example 必须保留
+backend/.env
+.env
+!*.env.example
+
 # 注意：scripts/ 下的 gen_theme.py 与 smoke_local.py 是仓库的一部分，不要忽略它们；
 # 根目录 scripts/ 曾被我误当成"临时目录"，其实它是跨前后端的工具目录（见 README 第三节）。

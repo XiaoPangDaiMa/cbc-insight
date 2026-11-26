@@ -53,6 +53,57 @@ jobs:
         # tokens.json 改动后忘了跑 gen_theme.py，屏幕与报告图就会悄悄不一致（SRS RK-22 / T-32）
         run: .venv/bin/python ../scripts/gen_theme.py --check
 
+  postgres:
+    name: 后端 / Postgres 方言（模型与迁移能在真库上跑）
+    runs-on: ubuntu-latest
+    # SQLite 太宽容：它不校验 varchar 长度、把 json 当文本、布尔值存 0/1。
+    # 这三条差异恰好是切库时最容易踩的，所以必须有一个真 Postgres 的 job。
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: cbc
+          POSTGRES_PASSWORD: cbc_dev_password
+          POSTGRES_DB: cbc
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U cbc"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      CBC_DATABASE_URL: postgresql+psycopg://cbc:cbc_dev_password@127.0.0.1:5432/cbc
+      # 测试不要往真实数据目录里写：用 runner 上的临时目录
+      CBC_DATA_DIR: ${{ runner.temp }}/cbc-data
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/requirements.txt
+
+      - name: 创建虚拟环境
+        run: uv venv --python 3.13
+
+      - name: 安装依赖
+        run: uv pip install --python .venv/bin/python -r requirements.txt
+
+      - name: 迁移到最新结构（alembic）
+        run: .venv/bin/python -m alembic upgrade head
+
+      - name: 结构没有漂移（模型与迁移一致）
+        # autogenerate 出来是空的，说明没有人"改了模型忘了写迁移"
+        run: .venv/bin/python -m alembic check
+
+      - name: 在 Postgres 上跑全量测试
+        run: .venv/bin/python -m pytest -q
+
   frontend:
     name: 前端 / typecheck + vitest + build
     runs-on: ubuntu-latest

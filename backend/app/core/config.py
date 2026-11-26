@@ -17,7 +17,12 @@ PROJECT_ROOT = BACKEND_DIR.parent  # 仅用于文档/脚本定位仓库根，后
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="CBC_", env_file=".env", extra="ignore")
+    # env_file 指到 backend/.env（而不是相对 CWD 的 ".env"）：从仓库根、从 backend/、
+    # 从 IDE 三种方式启动时都要读到同一份配置，否则"在我这儿能连上"会变成玄学。
+    # 进程环境变量的优先级高于文件，已存在的同名变量不会被文件覆盖。
+    model_config = SettingsConfigDict(
+        env_prefix="CBC_", env_file=str(BACKEND_DIR / ".env"), extra="ignore"
+    )
 
     app_name: str = "CBC Insight"
     api_prefix: str = "/api/v1"
@@ -31,6 +36,11 @@ class Settings(BaseSettings):
     # 与后端代码同属一个可移植单元：整个 backend/ 目录拷到别处仍能独立跑。
     data_dir: Path = BACKEND_DIR / "data"
     resources_dir: Path = BACKEND_DIR / "resources"
+
+    @property
+    def backend_dir(self) -> Path:
+        """``backend/`` 目录（alembic.ini 与 alembic/ 所在处）。"""
+        return BACKEND_DIR
 
     # --- 存储 ---
     # 默认 SQLite 仅用于零依赖起步；接入 Postgres 时用环境变量覆盖，例如

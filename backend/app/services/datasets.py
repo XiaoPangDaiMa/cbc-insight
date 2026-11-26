@@ -163,8 +163,10 @@ def save_upload(
 
     dataset = Dataset(
         user_id=user.id,
-        name=Path(filename or "dataset.csv").stem[:120] or "dataset",
-        original_filename=Path(filename or "dataset.csv").name,
+        name=(Path(filename or "dataset.csv").stem or "dataset")[:120],
+        # Postgres 的 varchar 会真的拒收超长：SQLite 时代没人在意，切 PG 后
+        # 一个 300 字符的文件名会让上传 500。截断放在入库前，两套库行为一致。
+        original_filename=Path(filename or "dataset.csv").name[:255],
         sha256=digest,
         status="uploaded",
     )

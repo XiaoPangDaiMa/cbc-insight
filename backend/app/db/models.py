@@ -1,4 +1,4 @@
-"""数据模型（SRS 7.5 计算与存储的分工、FR-22/28/34）。
+﻿"""数据模型（SRS 7.5 计算与存储的分工、FR-22/28/34）。
 
 设计要点：
 
@@ -26,9 +26,14 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
+
+# Postgres 上用 jsonb（可建 GIN 索引、能查键值），SQLite 上仍是普通 json。
+# 声明成变量而不是在每个列上写 with_variant，是为了让"哪些列是 JSON"一眼可见。
+JSONColumn = JSON().with_variant(JSONB, "postgresql")
 
 
 def new_id() -> str:
@@ -86,7 +91,7 @@ class ReferenceSnapshot(Base):
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
     version: Mapped[str] = mapped_column(String(32), unique=True, index=True)
-    content: Mapped[dict] = mapped_column(JSON, default=dict)
+    content: Mapped[dict] = mapped_column(JSONColumn, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
@@ -107,7 +112,7 @@ class UserRanges(Base):
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     version: Mapped[int] = mapped_column(Integer, default=1)
-    ranges: Mapped[dict] = mapped_column(JSON, default=dict)
+    ranges: Mapped[dict] = mapped_column(JSONColumn, default=dict)
     digest: Mapped[str] = mapped_column(String(16), default="")
     note: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
@@ -139,18 +144,18 @@ class Dataset(Base):
     #: 最近一次判定的时刻。改区间不会自动重判（BR-18），界面靠它判断"陈旧"
     judged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     #: 判定当时生效区间的整份快照（3.5.1：判定即快照，16 项 + 口径 + digest）
-    ranges_snapshot: Mapped[dict] = mapped_column(JSON, default=dict)
+    ranges_snapshot: Mapped[dict] = mapped_column(JSONColumn, default=dict)
     #: FR-16 的唯一例外：数据集无 gender 列、用户上传时**显式勾选**按统一区间判定。
     #: 默认 False（BR-17：性别缺失一律判 NA，系统不替用户猜）。
     unified_ranges: Mapped[bool] = mapped_column(Boolean, default=False)
 
     #: 管线产物（9：每步必须落盘）。键名见 :mod:`app.services.pipeline_runner`
-    artifacts: Mapped[dict] = mapped_column(JSON, default=dict)
-    mapping: Mapped[dict] = mapped_column(JSON, default=dict)
-    quality: Mapped[dict] = mapped_column(JSON, default=dict)
-    clean_report: Mapped[dict] = mapped_column(JSON, default=dict)
-    stats: Mapped[dict] = mapped_column(JSON, default=dict)
-    anomaly: Mapped[dict] = mapped_column(JSON, default=dict)
+    artifacts: Mapped[dict] = mapped_column(JSONColumn, default=dict)
+    mapping: Mapped[dict] = mapped_column(JSONColumn, default=dict)
+    quality: Mapped[dict] = mapped_column(JSONColumn, default=dict)
+    clean_report: Mapped[dict] = mapped_column(JSONColumn, default=dict)
+    stats: Mapped[dict] = mapped_column(JSONColumn, default=dict)
+    anomaly: Mapped[dict] = mapped_column(JSONColumn, default=dict)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
