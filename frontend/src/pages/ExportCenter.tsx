@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { api, keys } from "@/api/hooks";
 import { download, saveBlob } from "@/api/client";
 import { ErrorNotice, EmptyState } from "@/components/EmptyState";
+import { SkeletonTable } from "@/components/Skeleton";
 
 const KINDS = [
   { key: "items", label: "逐指标判定（长表）", hint: "每个样本 × 每个指标一行，含判定与偏离度" },
@@ -109,6 +110,7 @@ export function ExportCenter() {
             </div>
 
             {preview.error && <ErrorNotice error={preview.error} />}
+            {preview.isLoading && <div className="mt-2"><SkeletonTable rows={6} columns={6} /></div>}
 
             {preview.data && (
               <div className="mt-2 overflow-x-auto">

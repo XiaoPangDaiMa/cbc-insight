@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { api, exportPath, keys } from "@/api/hooks";
 import { fmtCount, fmtPct, patternLabel } from "@/lib/format";
 import { ErrorNotice } from "@/components/EmptyState";
+import { SkeletonCard, SkeletonTable } from "@/components/Skeleton";
 import { ExportButton, useExport } from "@/lib/useExport";
 
 const TOP_ROWS = 20;
@@ -28,7 +29,18 @@ export function AnomalyPanel({ datasetId }: { datasetId: string }) {
   });
 
   if (anomaly.error) return <ErrorNotice error={anomaly.error} />;
-  if (!anomaly.data) return <p className="text-[12px]">加载中…</p>;
+  if (!anomaly.data) {
+    return (
+      <div className="flex flex-col gap-3">
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {Array.from({ length: 4 }, (_, index) => (
+            <SkeletonCard key={index} lines={2} height={88} />
+          ))}
+        </div>
+        <SkeletonTable rows={8} columns={5} />
+      </div>
+    );
+  }
 
   const data = anomaly.data;
   const patterns = Object.entries(data.pattern_counts).sort((a, b) => b[1] - a[1]);

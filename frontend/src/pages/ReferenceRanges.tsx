@@ -14,6 +14,7 @@ import { api, keys } from "@/api/hooks";
 import { ApiError } from "@/api/client";
 import type { RangeDraft, RangeItem } from "@/api/types";
 import { EmptyState } from "@/components/EmptyState";
+import { SkeletonCard, SkeletonTable } from "@/components/Skeleton";
 
 interface DraftRow {
   metric: string;
@@ -103,7 +104,14 @@ export function ReferenceRanges() {
   const update = (metric: string, field: keyof DraftRow, value: string) =>
     setRows((current) => current.map((row) => (row.metric === metric ? { ...row, [field]: value } : row)));
 
-  if (mine.isLoading) return <div className="text-[13px]">加载中…</div>;
+  if (mine.isLoading) {
+    return (
+      <div className="flex flex-col gap-3">
+        <SkeletonCard lines={2} height={80} />
+        <SkeletonTable rows={9} columns={5} />
+      </div>
+    );
+  }
   if (!mine.data) return <EmptyState title="读不到区间配置" description="刷新页面重试；若持续失败请查看后端日志。" />;
 
   const effective = mine.data.effective;

@@ -12,6 +12,7 @@ import { api, keys } from "@/api/hooks";
 import type { ChartPanel } from "@/api/types";
 import { EChart } from "@/components/EChart";
 import { ErrorNotice, EmptyState } from "@/components/EmptyState";
+import { SkeletonChart } from "@/components/Skeleton";
 
 const PANEL_HEIGHT: Record<ChartPanel["id"], number> = {
   completeness: 270,
@@ -39,7 +40,14 @@ export function QualityPanel({ datasetId }: { datasetId: string }) {
   });
 
   if (quality.error) return <ErrorNotice error={quality.error} />;
-  if (quality.isLoading) return <p className="text-[12px]" style={{ color: "var(--color-text-muted)" }}>正在计算数据质量…</p>;
+  if (quality.isLoading) {
+    return (
+      <div className="flex flex-col gap-3">
+        <SkeletonChart height={270} />
+        <SkeletonChart height={270} />
+      </div>
+    );
+  }
   if (!quality.data) return null;
 
   const panels = quality.data.panels ?? [];

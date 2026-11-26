@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { api, keys } from "@/api/hooks";
 import type { CompareCell, ComparePayload } from "@/api/types";
 import { EmptyState, ErrorNotice } from "@/components/EmptyState";
+import { SkeletonTable } from "@/components/Skeleton";
 import { fmtCount, fmtNumber, fmtPct } from "@/lib/format";
 
 const MAX_PICK = 4;
@@ -111,7 +112,7 @@ export function Compare() {
       )}
 
       {compare.isError && <ErrorNotice error={compare.error} />}
-      {canCompare && compare.isLoading && <p className="text-[12px]">计算中…</p>}
+      {canCompare && compare.isLoading && <SkeletonTable rows={7} columns={3} />}
 
       {payload && (
         <>

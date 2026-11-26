@@ -6,6 +6,7 @@ import { api, keys } from "@/api/hooks";
 import { ApiError } from "@/api/client";
 import { DatasetCard } from "@/components/DatasetCard";
 import { EmptyState, ErrorNotice } from "@/components/EmptyState";
+import { SkeletonCard } from "@/components/Skeleton";
 import { MetricCard } from "@/components/MetricCard";
 import { fmtPct } from "@/lib/format";
 
@@ -105,7 +106,18 @@ export function Dashboard() {
         )}
       </section>
 
-      {workspace.isLoading && <p className="text-[12px]">加载中…</p>}
+      {workspace.isLoading && (
+        <section className="flex flex-col gap-2">
+          <h2 className="text-[13px] font-medium" style={{ color: "var(--color-text-secondary)" }}>
+            我的数据集
+          </h2>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {Array.from({ length: 3 }, (_, index) => (
+              <SkeletonCard key={index} lines={4} height={132} />
+            ))}
+          </div>
+        </section>
+      )}
       {workspace.data?.empty && (
         <EmptyState title="还没有数据集" description="先上传一份脱敏的血常规 CSV，系统会自动跑完清洗与区间判定。" />
       )}

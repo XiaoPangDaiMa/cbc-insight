@@ -58,17 +58,179 @@ body {
 .lift:hover {
   transform: translateY(-2px);
   border-color: var(--color-border-strong);
-  box-shadow: 0 8px 20px -12px color-mix(in srgb, var(--color-text-primary) 45%, transparent);
+  box-shadow: var(--shadow-lift);
 }
 
 .lift:active {
   transform: translateY(0);
-  box-shadow: 0 2px 6px -4px color-mix(in srgb, var(--color-text-primary) 40%, transparent);
+  box-shadow: var(--shadow-soft);
 }
 
 .lift:focus-visible {
   outline: 2px solid var(--color-brand);
   outline-offset: 2px;
+}
+
+/* ---------- 侧栏导航 ---------- */
+/* 三态都要能看出来：悬停有底色、当前页有底色+左侧竖条+品牌色字、键盘聚焦有描边。
+   只做"当前页变色"的话，鼠标划过去毫无反馈，五个条目看起来一样重。 */
+.nav-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: var(--radius-md);
+  padding: 7px 10px;
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  transition:
+    background-color 140ms ease,
+    color 140ms ease;
+}
+
+.nav-item:hover {
+  background-color: var(--color-bg-subtle);
+  color: var(--color-text-primary);
+}
+
+.nav-item[aria-current="page"],
+.nav-item.is-active {
+  background-color: var(--color-brand-soft);
+  color: var(--color-brand);
+  font-weight: 500;
+}
+
+.nav-item[aria-current="page"]::before,
+.nav-item.is-active::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 7px;
+  bottom: 7px;
+  width: 2px;
+  border-radius: 2px;
+  background-color: var(--color-brand);
+}
+
+.nav-item:focus-visible,
+.icon-btn:focus-visible,
+.pill:focus-visible,
+.seg-item:focus-visible {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 2px;
+}
+
+.nav-group-title {
+  padding: 10px 10px 4px;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--color-text-muted);
+}
+
+/* ---------- 图标按钮（登出、卡片右上角下载等） ---------- */
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: var(--radius-md);
+  padding: 4px 6px;
+  font-size: 11px;
+  color: var(--color-text-secondary);
+  transition:
+    background-color 140ms ease,
+    color 140ms ease;
+}
+
+.icon-btn:hover {
+  background-color: var(--color-bg-subtle);
+  color: var(--color-text-primary);
+}
+
+/* ---------- 分段控件（数据集详情里的 tab） ---------- */
+/* 选中＝白底+阴影+品牌字；未选中悬停＝浅底+浅阴影；两者靠"有没有阴影"区分，
+   不靠颜色深浅——颜色还要承载三态语义，不能拿来当选中态（BR-14）。 */
+.seg {
+  display: inline-flex;
+  gap: 2px;
+  border-radius: var(--radius-md);
+  padding: 2px;
+  background-color: var(--color-bg-subtle);
+}
+
+.seg-item {
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  transition:
+    background-color 140ms ease,
+    box-shadow 140ms ease,
+    color 140ms ease;
+}
+
+.seg-item:hover {
+  background-color: color-mix(in srgb, var(--color-bg-surface) 60%, transparent);
+  box-shadow: var(--shadow-soft);
+  color: var(--color-text-primary);
+}
+
+.seg-item[aria-selected="true"] {
+  background-color: var(--color-bg-surface);
+  box-shadow: var(--shadow-tab);
+  color: var(--color-brand);
+  font-weight: 500;
+}
+
+/* ---------- 样本 pill ---------- */
+.pill {
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  padding: 2px 10px;
+  font-size: 11px;
+  color: var(--color-text-secondary);
+  background-color: var(--color-bg-surface);
+  transition:
+    background-color 140ms ease,
+    border-color 140ms ease,
+    color 140ms ease,
+    box-shadow 140ms ease;
+}
+
+.pill:hover {
+  background-color: var(--color-bg-subtle);
+  border-color: var(--color-border-strong);
+  color: var(--color-text-primary);
+}
+
+.pill[aria-pressed="true"] {
+  background-color: var(--color-brand-soft);
+  border-color: var(--color-brand);
+  color: var(--color-brand);
+  box-shadow: var(--shadow-soft);
+}
+
+/* ---------- 骨架屏 ---------- */
+/* 占位块的底色用 bg-subtle，不用灰色渐变：主题换代时跟着 token 走。 */
+.skeleton {
+  border-radius: var(--radius-md);
+  background-color: var(--color-bg-subtle);
+  animation: skeleton-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes skeleton-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+  }
 }
 
 /* 表格行悬停：只换底色，不改字色——行里那几个三态数字仍然保持语义色 */

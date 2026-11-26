@@ -60,6 +60,10 @@ def build_css(tokens: dict[str, Any]) -> str:
         lines.append(f"  --space-{key}: {value}px;")
     for key, value in tokens["radius"].items():
         lines.append(f"  --radius-{key}: {value}px;")
+    for key, value in tokens.get("shadow", {}).items():
+        if key.startswith("$"):
+            continue
+        lines.append(f"  --shadow-{key}: {value};")
     lines += [f"  --font-{key}: {value};" for key, value in tokens["font"].items()]
     lines.append("}")
     return "\n".join(lines) + "\n"

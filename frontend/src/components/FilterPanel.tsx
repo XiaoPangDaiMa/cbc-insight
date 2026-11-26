@@ -5,6 +5,7 @@ import { api, exportPath, keys } from "@/api/hooks";
 import type { FilterClause, MetricStatusItem } from "@/api/types";
 import { fmtNumber } from "@/lib/format";
 import { EmptyState, ErrorNotice } from "@/components/EmptyState";
+import { SkeletonTable } from "@/components/Skeleton";
 import { ExportButton, useExport } from "@/lib/useExport";
 
 type Op = FilterClause["op"];
@@ -258,6 +259,7 @@ export function FilterPanel({ datasetId, metrics }: { datasetId: string; metrics
         </div>
         {exporter.error && <p className="mt-1 text-[11px]" style={{ color: "var(--color-status-high)" }}>{exporter.error}</p>}
 
+        {result.isLoading && <div className="mt-2"><SkeletonTable rows={6} columns={5} /></div>}
         {result.error && <ErrorNotice error={result.error} />}
         {result.data && total === 0 && (
           <EmptyState title="没有符合条件的样本" description="把阈值放宽一些，或者点「重置」回到全量。" />

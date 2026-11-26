@@ -4,14 +4,17 @@ import { useQuery } from "@tanstack/react-query";
 
 import { api, keys } from "@/api/hooks";
 import { AnomalyPanel } from "@/components/AnomalyPanel";
+import { CardHeader } from "@/components/CardHeader";
 import { EChart } from "@/components/EChart";
+import { EmptyState, ErrorNotice } from "@/components/EmptyState";
 import { FilterPanel } from "@/components/FilterPanel";
 import { MetricCard } from "@/components/MetricCard";
 import { QualityPanel } from "@/components/QualityPanel";
 import { RangesPanel } from "@/components/RangesPanel";
 import { SampleProfile } from "@/components/SampleProfile";
-import { ErrorNotice } from "@/components/EmptyState";
-import { fmtPercentValue } from "@/lib/format";
+import { SegmentedTabs } from "@/components/SegmentedTabs";
+import { SkeletonCard, SkeletonChart } from "@/components/Skeleton";
+import { fmtNumber, fmtPercentValue, fmtRange } from "@/lib/format";
 import { ExportButton, useExport } from "@/lib/useExport";
 
 type Tab = "analysis" | "ranges" | "filter" | "anomaly" | "quality";
@@ -24,7 +27,12 @@ const TABS: { key: Tab; label: string }[] = [
   { key: "quality", label: "数据详情" },
 ];
 
-/** 数据集详情：四个 tab。分析页的区块顺序固定（4.3.3），质量图不放在本 tab。 */
+/** 数据集详情：五个 tab。分析页的区块顺序固定（4.3.3），质量图不放在本 tab。
+ *
+ * 分析页是"左图右单"两栏：左边指标卡 + 三张大图，右边固定一列（pill 常驻 + 选中样本的体检单）。
+ * 右侧之所以不能"点开就替换整块"，是因为对照五十个样本时要来回点，
+ * 每次都得先关掉再打开，等于把列表藏起来了。
+ */
 export function DatasetDetail() {
   const { datasetId = "" } = useParams();
   const [params, setParams] = useSearchParams();
@@ -49,6 +57,8 @@ export function DatasetDetail() {
     if (selected) return selected;
     return status.data?.metrics[0]?.metric ?? "hgb";
   }, [selected, status.data]);
+
+  const activeItem = status.data?.metrics.find((item) => item.metric === activeMetric);
 
   const box = useQuery({
     queryKey: keys.chart(datasetId, "box", activeMetric),
@@ -82,37 +92,45 @@ export function DatasetDetail() {
     setParams(merged, { replace: true });
   }
 
+  function pickMetric(metric: string) {
+    setSelected(metric);
+    const merged = new URLSearchParams(params);
+    merged.set("metric", metric);
+    setParams(merged, { replace: true });
+  }
+
   if (dataset.isError) return <ErrorNotice error={dataset.error} />;
-  if (!dataset.data) return <p className="text-[12px]">加载中…</p>;
+
+  if (!dataset.data) {
+    return (
+      <div className="flex flex-col gap-3">
+        <SkeletonCard lines={2} />
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          {Array.from({ length: 6 }, (_, index) => (
+            <SkeletonCard key={index} lines={2} height={104} />
+          ))}
+        </div>
+        <SkeletonChart height={320} />
+      </div>
+    );
+  }
+
+  const metricHint = activeItem
+    ? `${activeItem.name_cn} · 单位 ${activeItem.unit} · n = ${activeItem.n} · 参考 ${fmtRange(activeItem.low, activeItem.high, activeItem.decimals)}`
+    : undefined;
 
   return (
     <div className="flex flex-col gap-3">
-      <header className="flex flex-wrap items-baseline justify-between gap-2">
-        <div>
-          <h1 className="text-base font-semibold" style={{ color: "var(--color-text-primary)" }}>
+      <header className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
+          <h1 className="truncate text-base font-semibold" style={{ color: "var(--color-text-primary)" }}>
             {dataset.data.dataset.name}
           </h1>
-          <p className="text-[11px]" style={{ color: "var(--color-text-muted)" }}>
+          <p className="mt-0.5 text-[11px]" style={{ color: "var(--color-text-muted)" }}>
             {dataset.data.dataset.rows} 行 · 参考区间 {dataset.data.dataset.ri_version} · {dataset.data.dataset.health}
           </p>
         </div>
-        <nav className="flex gap-1">
-          {TABS.map((item) => (
-            <button
-              key={item.key}
-              type="button"
-              onClick={() => switchTab(item.key)}
-              className="rounded px-2 py-1 text-[12px]"
-              style={{
-                backgroundColor: tab === item.key ? "var(--color-brand-soft)" : "transparent",
-                color: tab === item.key ? "var(--color-brand)" : "var(--color-text-secondary)",
-              }}
-            >
-              {item.label}
-            </button>
-          ))}
-        </nav>
-        <div className="flex items-center gap-1">
+        <div className="flex shrink-0 items-center gap-1">
           <ExportButton
             label="打开报告"
             path={`/datasets/${datasetId}/report.html`}
@@ -125,126 +143,195 @@ export function DatasetDetail() {
             path={`/datasets/${datasetId}/report.html`}
             busy={exporter.busy}
             run={exporter.run}
+            variant="solid"
           />
         </div>
       </header>
-      {exporter.error && <p className="text-[11px]" style={{ color: "var(--color-status-high)" }}>{exporter.error}</p>}
+      {exporter.error && (
+        <p className="text-[11px]" style={{ color: "var(--color-status-high)" }}>
+          {exporter.error}
+        </p>
+      )}
+
+      {/* tab 条贴在内容区顶部：既像"第二层顶栏"，又只属于这份数据集 */}
+      <div
+        className="sticky top-0 z-10 -mx-4 flex items-center justify-between gap-2 border-b px-4 py-2"
+        style={{ backgroundColor: "var(--color-bg-page)", borderColor: "var(--color-border)" }}
+      >
+        <SegmentedTabs items={TABS} value={tab} onChange={switchTab} ariaLabel="数据集视图" />
+        <span className="hidden text-[11px] sm:block" style={{ color: "var(--color-text-muted)" }}>
+          {activeMetric && tab === "analysis" ? `当前指标：${activeItem?.name_cn ?? activeMetric}` : ""}
+        </span>
+      </div>
 
       {tab === "ranges" && <RangesPanel datasetId={datasetId} />}
 
-      {tab === "analysis" && (        <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_320px]">
-          <div className="flex flex-col gap-3">
+      {tab === "analysis" && (
+        <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_248px]">
+          <div className="flex min-w-0 flex-col gap-3">
             <section className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-              {status.data?.metrics.map((item) => (
-                <MetricCard
-                  key={item.metric}
-                  item={item}
-                  active={item.metric === activeMetric}
-                  onClick={() => {
-                    setSelected(item.metric);
-                    const merged = new URLSearchParams(params);
-                    merged.set("metric", item.metric);
-                    setParams(merged, { replace: true });
-                  }}
-                />
-              ))}
+              {status.isLoading
+                ? Array.from({ length: 9 }, (_, index) => <SkeletonCard key={index} lines={2} height={104} />)
+                : status.data?.metrics.map((item) => (
+                    <MetricCard
+                      key={item.metric}
+                      item={item}
+                      active={item.metric === activeMetric}
+                      onClick={() => pickMetric(item.metric)}
+                    />
+                  ))}
             </section>
 
-            <section className="card p-3">
-              <div className="flex items-center justify-between">
-                <h2 className="text-[13px] font-medium" style={{ color: "var(--color-text-secondary)" }}>
-                  分布（按性别分组，叠加参考区间）
-                </h2>
-                <ExportButton
-                  label="PNG"
-                  path={`/datasets/${datasetId}/charts/box/image?fmt=png&metric=${activeMetric}`}
-                  busy={exporter.busy}
-                  run={exporter.run}
-                />
-              </div>
-              {box.error && <ErrorNotice error={box.error} />}
-              {box.data && <EChart option={box.data.echarts_option ?? {}} height={320} />}
-              {box.data && (
-                <p className="mt-1 text-[12px]" style={{ color: "var(--color-text-primary)" }}>
-                  {box.data.caption}
-                </p>
-              )}
-            </section>
-
-            <section className="card p-3">
-              <div className="flex items-center justify-between">
-                <h2 className="text-[13px] font-medium" style={{ color: "var(--color-text-secondary)" }}>
-                  直方图（区间内外占比）
-                </h2>
-                <ExportButton
-                  label="PNG"
-                  path={`/datasets/${datasetId}/charts/hist/image?fmt=png&metric=${activeMetric}`}
-                  busy={exporter.busy}
-                  run={exporter.run}
-                />
-              </div>
-              {hist.error && <ErrorNotice error={hist.error} />}
-              {hist.data && <EChart option={hist.data.echarts_option ?? {}} height={280} />}
-              {hist.data && (
-                <p className="mt-1 text-[12px]" style={{ color: "var(--color-text-primary)" }}>
-                  {hist.data.caption}
-                </p>
-              )}
-            </section>
-
-            <section className="card p-3">
-              <div className="flex items-center justify-between">
-                <h2 className="text-[13px] font-medium" style={{ color: "var(--color-text-secondary)" }}>
-                  指标间相关（含数学耦合标注）
-                </h2>
-                <ExportButton
-                  label="PNG"
-                  path={`/datasets/${datasetId}/charts/corr/image?fmt=png`}
-                  busy={exporter.busy}
-                  run={exporter.run}
-                />
-              </div>
-              {corr.error && <ErrorNotice error={corr.error} />}
-              {corr.data && <EChart option={corr.data.echarts_option ?? {}} height={560} />}
-              {corr.data && (
-                <p className="mt-1 text-[12px]" style={{ color: "var(--color-text-primary)" }}>
-                  {corr.data.caption}
-                </p>
-              )}
-            </section>
-          </div>
-
-          <div>
-            {profile.data ? (
-              <SampleProfile profile={profile.data} onClose={() => setSampleIndex(null)} />
+            {box.isLoading ? (
+              <SkeletonChart height={320} />
             ) : (
-              <div className="card p-4">
-                <div className="text-[12px] font-medium" style={{ color: "var(--color-text-primary)" }}>
-                  单样本体检单
-                </div>
-                <p className="mt-1 text-[11px]" style={{ color: "var(--color-text-muted)" }}>
-                  点击任一数据点可打开该样本的全部指标。条长按"在参考区间中的位置"标准化，
-                  因此 HGB 与 MCH 的条长可以直接比较。
-                </p>
-                {box.data && box.data.points.length > 0 && (
-                  <div className="mt-2 flex flex-wrap gap-1">
-                    {box.data.points.slice(0, 12).map((point) => (
-                      <button
-                        key={point.sample_index}
-                        type="button"
-                        onClick={() => setSampleIndex(point.sample_index)}
-                        className="rounded border px-2 py-0.5 text-[11px]"
-                        style={{ borderColor: "var(--color-border)", color: "var(--color-text-secondary)" }}
-                        title={`偏离 ${fmtPercentValue(point.deviation_pct)}`}
-                      >
-                        #{point.sample_index}
-                      </button>
-                    ))}
-                  </div>
+              <section className="card p-3">
+                <CardHeader
+                  title="箱线图"
+                  hint={`${metricHint ?? ""} · 按性别分组，横虚线为参考区间`}
+                  actions={
+                    <ExportButton
+                      label="PNG"
+                      path={`/datasets/${datasetId}/charts/box/image?fmt=png&metric=${activeMetric}`}
+                      busy={exporter.busy}
+                      run={exporter.run}
+                    />
+                  }
+                />
+                {box.error && <ErrorNotice error={box.error} />}
+                {box.data && <EChart option={box.data.echarts_option ?? {}} height={320} />}
+                {box.data && (
+                  <p className="mt-1 text-[12px]" style={{ color: "var(--color-text-primary)" }}>
+                    {box.data.caption}
+                  </p>
                 )}
-              </div>
+              </section>
+            )}
+
+            {hist.isLoading ? (
+              <SkeletonChart height={280} />
+            ) : (
+              <section className="card p-3">
+                <CardHeader
+                  title="直方图"
+                  hint={`${metricHint ?? ""} · 竖线为参考区间上下限`}
+                  actions={
+                    <ExportButton
+                      label="PNG"
+                      path={`/datasets/${datasetId}/charts/hist/image?fmt=png&metric=${activeMetric}`}
+                      busy={exporter.busy}
+                      run={exporter.run}
+                    />
+                  }
+                />
+                {hist.error && <ErrorNotice error={hist.error} />}
+                {hist.data && <EChart option={hist.data.echarts_option ?? {}} height={280} />}
+                {hist.data && (
+                  <p className="mt-1 text-[12px]" style={{ color: "var(--color-text-primary)" }}>
+                    {hist.data.caption}
+                  </p>
+                )}
+              </section>
+            )}
+
+            {corr.isLoading ? (
+              <SkeletonChart height={520} />
+            ) : (
+              <section className="card p-3">
+                <CardHeader
+                  title="相关性（Spearman）"
+                  hint={`${status.data?.metrics.length ?? 0} 个指标 · 对角线为自身 · 格内数值为 ρ`}
+                  actions={
+                    <ExportButton
+                      label="PNG"
+                      path={`/datasets/${datasetId}/charts/corr/image?fmt=png`}
+                      busy={exporter.busy}
+                      run={exporter.run}
+                    />
+                  }
+                />
+                {corr.error && <ErrorNotice error={corr.error} />}
+                {corr.data && <EChart option={corr.data.echarts_option ?? {}} height={560} />}
+                {corr.data && (
+                  <p className="mt-1 text-[12px]" style={{ color: "var(--color-text-primary)" }}>
+                    {corr.data.caption}
+                  </p>
+                )}
+              </section>
             )}
           </div>
+
+          {/* 右侧固定列：pill 网格常驻，体检单在它下面滚动 */}
+          <aside className="card flex min-w-0 flex-col p-3 xl:sticky xl:top-14 xl:max-h-[calc(100vh-5.5rem)]">
+            <div className="flex items-center justify-between">
+              <h2 className="text-[13px] font-medium" style={{ color: "var(--color-text-secondary)" }}>
+                单样本体检
+              </h2>
+              {sampleIndex !== null && (
+                <button
+                  type="button"
+                  className="icon-btn"
+                  onClick={() => setSampleIndex(null)}
+                  aria-label="关闭体检单"
+                >
+                  关闭
+                </button>
+              )}
+            </div>
+            <p className="mt-0.5 text-[11px]" style={{ color: "var(--color-text-muted)" }}>
+              点样本号看这个人：条长按"在参考区间中的位置"标准化，HGB 与 MCH 可直接比长短。
+            </p>
+
+            {box.data && box.data.points.length > 0 ? (
+              <div className="mt-2 flex flex-wrap gap-1">
+                {box.data.points.slice(0, 24).map((point) => (
+                  <button
+                    key={point.sample_index}
+                    type="button"
+                    className="pill"
+                    aria-pressed={sampleIndex === point.sample_index}
+                    onClick={() => setSampleIndex(point.sample_index)}
+                    title={`${activeItem?.name_cn ?? activeMetric} 偏离 ${fmtPercentValue(point.deviation_pct)}`}
+                  >
+                    #{point.sample_index}
+                  </button>
+                ))}
+                {box.data.points.length > 24 && (
+                  <span className="self-center text-[10px]" style={{ color: "var(--color-text-muted)" }}>
+                    另有 {box.data.points.length - 24} 个
+                  </span>
+                )}
+              </div>
+            ) : (
+              <p className="mt-2 text-[11px]" style={{ color: "var(--color-text-muted)" }}>
+                当前指标没有可点的样本。
+              </p>
+            )}
+
+            <div
+              className="mt-3 min-h-0 flex-1 overflow-y-auto border-t pt-3"
+              style={{ borderColor: "var(--color-border)" }}
+            >
+              {sampleIndex === null ? (
+                <EmptyState title="还没选样本" description="点上面的样本号，这里显示该样本的 15 个指标与参考区间。" />
+              ) : profile.isLoading ? (
+                <div className="flex flex-col gap-2">
+                  <SkeletonCard lines={2} height={56} />
+                  <SkeletonCard lines={4} height={120} />
+                </div>
+              ) : profile.error ? (
+                <ErrorNotice error={profile.error} />
+              ) : profile.data ? (
+                <SampleProfile profile={profile.data} />
+              ) : null}
+            </div>
+
+            {activeItem && (
+              <p className="mt-2 text-[10px]" style={{ color: "var(--color-text-muted)" }}>
+                当前指标中位数 {fmtNumber(activeItem.median, activeItem.decimals)} {activeItem.unit}，样本号来自这张图。
+              </p>
+            )}
+          </aside>
         </div>
       )}
 
@@ -258,44 +345,40 @@ export function DatasetDetail() {
               这里是问"这份数据能不能用"的地方（4.3.3 的区块划分）。 */}
           <QualityPanel datasetId={datasetId} />
           <section className="card p-3">
+            {cleanReport.isLoading && <SkeletonCard lines={4} height={140} />}
             {cleanReport.error && <ErrorNotice error={cleanReport.error} />}
             {cleanReport.data && (
               <>
-                <h2 className="text-[13px] font-medium" style={{ color: "var(--color-text-secondary)" }}>
-                  清洗前后对比
-                </h2>
-              <p className="mt-1 text-[12px]" style={{ color: "var(--color-text-primary)" }}>
-                {cleanReport.data.health}
-              </p>
-              <table className="mt-2 w-full text-[12px]">
-                <thead style={{ color: "var(--color-text-muted)" }}>
-                  <tr>
-                    <th className="text-left font-normal">步骤</th>
-                    <th className="text-left font-normal">字段</th>
-                    <th className="text-right font-normal">计数</th>
-                    <th className="text-left font-normal">说明</th>
-                  </tr>
-                </thead>
-                <tbody style={{ color: "var(--color-text-secondary)" }}>
-                  {cleanReport.data.log.map((entry, index) => (
-                    <tr key={`${entry.step}-${index}`} className="border-t" style={{ borderColor: "var(--color-border)" }}>
-                      <td>{entry.step}</td>
-                      <td>{entry.field ?? "—"}</td>
-                      <td className="text-right">{entry.count}</td>
-                      <td className="pl-3">{entry.detail}</td>
+                <CardHeader title="清洗前后对比" hint={cleanReport.data.health} />
+                <table className="row-hover mt-2 w-full text-[12px]">
+                  <thead style={{ color: "var(--color-text-muted)" }}>
+                    <tr>
+                      <th className="text-left font-normal">步骤</th>
+                      <th className="text-left font-normal">字段</th>
+                      <th className="text-right font-normal">计数</th>
+                      <th className="text-left font-normal">说明</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-              {cleanReport.data.unit_log.length > 0 && (
-                <ul className="mt-2 text-[11px]" style={{ color: "var(--color-text-muted)" }}>
-                  {cleanReport.data.unit_log.map((line) => (
-                    <li key={line}>· {line}</li>
-                  ))}
-                </ul>
-              )}
-            </>
-          )}
+                  </thead>
+                  <tbody style={{ color: "var(--color-text-secondary)" }}>
+                    {cleanReport.data.log.map((entry, index) => (
+                      <tr key={`${entry.step}-${index}`} className="border-t" style={{ borderColor: "var(--color-border)" }}>
+                        <td>{entry.step}</td>
+                        <td>{entry.field ?? "—"}</td>
+                        <td className="text-right">{entry.count}</td>
+                        <td className="pl-3">{entry.detail}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {cleanReport.data.unit_log.length > 0 && (
+                  <ul className="mt-2 text-[11px]" style={{ color: "var(--color-text-muted)" }}>
+                    {cleanReport.data.unit_log.map((line) => (
+                      <li key={line}>· {line}</li>
+                    ))}
+                  </ul>
+                )}
+              </>
+            )}
           </section>
         </div>
       )}

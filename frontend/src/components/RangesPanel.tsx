@@ -14,6 +14,8 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
+import { EmptyState } from "@/components/EmptyState";
+import { SkeletonCard, SkeletonTable } from "@/components/Skeleton";
 
 import { api, keys } from "@/api/hooks";
 import { ApiError } from "@/api/client";
@@ -57,8 +59,17 @@ export function RangesPanel({ datasetId }: { datasetId: string }) {
     onError: (err: unknown) => setError(err instanceof ApiError ? err.message : String(err)),
   });
 
-  if (snapshot.isLoading) return <p className="text-[12px]">加载中…</p>;
-  if (!snapshot.data) return <p className="text-[12px]">读不到区间快照。</p>;
+  if (snapshot.isLoading) {
+    return (
+      <div className="flex flex-col gap-3">
+        <SkeletonCard lines={2} height={92} />
+        <SkeletonTable rows={8} columns={6} />
+      </div>
+    );
+  }
+  if (!snapshot.data) {
+    return <EmptyState title="读不到判定快照" description="刷新重试；若持续失败，说明这份数据的快照文件已损坏。" />;
+  }
 
   const data = snapshot.data;
   const items = Object.values(data.snapshot.items ?? {});
