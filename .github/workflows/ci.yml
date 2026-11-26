@@ -38,7 +38,7 @@ jobs:
         run: uv pip install --python .venv/bin/python -r requirements.txt
 
       - name: 代码风格（ruff）
-        run: .venv/bin/python -m ruff check app tests
+        run: .venv/bin/python -m ruff check app tests alembic
 
       - name: 单元与接口测试
         # 只对 app/pipeline 与 app/services 设门禁：路由层由"每个接口三个用例"覆盖，

@@ -1,9 +1,15 @@
 """baseline
 
 Revision ID: a9d43a4b6e3f
-Revises: 
+Revises:
 Create Date: 2026-11-26 13:20:22.072608+00:00
+
+这是 ``alembic revision --autogenerate`` 的产物：形如
+``sa.JSON().with_variant(postgresql.JSONB(...), 'postgresql')`` 的列定义只有一行写完才
+读得顺，硬拆成多行反而看不清"哪个列用了哪个类型"。因此本文件豁免行长检查。
 """
+
+# ruff: noqa: E501
 
 from __future__ import annotations
 

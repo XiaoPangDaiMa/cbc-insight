@@ -317,7 +317,7 @@ cbc-insight/
 ```powershell
 cd cbc-insight\backend
 .venv\Scripts\python.exe -m pytest -q        # 197 passed（其中 4 条只在 Postgres 上跑）
-.venv\Scripts\ruff.exe check app tests ..\scripts   # All checks passed
+.venv\Scripts\ruff.exe check app tests ..\scripts alembic   # All checks passed
 
 cd ..\frontend
 pnpm exec tsc --noEmit                          # 类型检查
