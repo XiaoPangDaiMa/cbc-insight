@@ -43,7 +43,9 @@ function Stop-ByPort([int]$port, $name) {
 
 Stop-ByPidFile "backend" "后端（uvicorn）"
 Stop-ByPidFile "frontend" "前端（vite）"
+Stop-ByPidFile "wsl" "WSL 常驻会话（start.ps1 起的那个）"
 Stop-ByPort $ApiPort "后端（uvicorn）"
 Stop-ByPort $WebPort "前端（vite/node）"
 
 Write-Host "已停止。" -ForegroundColor DarkGray
+Write-Host "提示：WSL 里的 Postgres 仍在运行，只是常驻会话被关掉了；下次 start.ps1 会重新拉起。" -ForegroundColor DarkGray

@@ -81,7 +81,45 @@ if (-not (Test-Path $venvPython)) {
 $pyVersion = (& $venvPython -c "import sys; print('.'.join(map(str, sys.version_info[:2])))").Trim()
 Write-Ok "Python $pyVersion @ backend\.venv"
 
-# ---------------------------------------------------------------- 2. 后端
+# ---------------------------------------------------------------- 2. 数据库（仅当 .env 指向 WSL 里的 Postgres）
+# WSL 空闲会自动停机，一停机 127.0.0.1:5432 就没了，后端启动时报"连接超时"。
+# 这里先确认数据库在线，并留一个常驻会话把它钉住（stop.ps1 会一起关掉）。
+$envFile = Join-Path $backendDir ".env"
+if ((Test-Path $envFile) -and (Select-String -Path $envFile -Pattern "postgresql" -Quiet)) {
+    Write-Step "检查 WSL 里的 Postgres"
+    # wsl -l -q 在 Windows 上输出 UTF-16，PowerShell 读出来常带 \0，先清掉再判断
+    $distro = (& wsl -l -q 2>$null | ForEach-Object { ($_ -replace "`0", "").Trim() } | Where-Object { $_ } | Select-Object -First 1)
+    if (-not $distro) {
+        Write-Warn2 "没找到 WSL 发行版，但 backend\.env 指向 Postgres —— 后端可能连不上数据库"
+    } else {
+        $distro = $distro.Trim()
+        $keepAlive = Join-Path $runDir "wsl.pid"
+        $alive = $false
+        if (Test-Path $keepAlive) {
+            $oldPid = (Get-Content $keepAlive -Raw).Trim()
+            if ($oldPid -and (Get-Process -Id $oldPid -ErrorAction SilentlyContinue)) { $alive = $true }
+        }
+        if (-not $alive) {
+            $proc = Start-Process -FilePath "wsl.exe" `
+                -ArgumentList "-d", $distro, "-u", "root", "--", "bash", "-lc", `
+                    "pg_ctlcluster 18 main start >/dev/null 2>&1; exec tail -f /dev/null" `
+                -WindowStyle Hidden -PassThru
+            Set-Content -Path $keepAlive -Value $proc.Id -Encoding ascii
+        }
+        $ready = $false
+        for ($i = 0; $i -lt 20; $i++) {
+            Start-Sleep -Milliseconds 800
+            if ((Test-NetConnection 127.0.0.1 -Port 5432 -InformationLevel Quiet -WarningAction SilentlyContinue)) {
+                $ready = $true
+                break
+            }
+        }
+        if ($ready) { Write-Ok "Postgres 127.0.0.1:5432 已就绪（$distro）" }
+        else { Write-Warn2 "5432 仍连不上，后端会报数据库连接失败；可先手动执行 wsl -d $distro -u root service postgresql start" }
+    }
+}
+
+# ---------------------------------------------------------------- 3. 后端
 Write-Step "启动后端（端口 $ApiPort）"
 if (Test-Url "$apiUrl/healthz") {
     Write-Ok "后端已在运行，直接复用：$apiUrl"
@@ -95,7 +133,7 @@ if (Test-Url "$apiUrl/healthz") {
     }
 }
 
-# ---------------------------------------------------------------- 3. 前端
+# ---------------------------------------------------------------- 4. 前端
 Write-Step "检查前端依赖"
 $viteBin = Join-Path $frontendDir "node_modules\.bin\vite.cmd"
 if (-not (Test-Path $viteBin)) {
@@ -122,7 +160,7 @@ if (Test-Url $webUrl) {
     if (Wait-Url $webUrl 60 "前端") { Write-Ok "前端就绪：$webUrl" }
 }
 
-# ---------------------------------------------------------------- 4. 打开浏览器
+# ---------------------------------------------------------------- 5. 打开浏览器
 if (-not $NoBrowser) { Start-Process $webUrl }
 
 Write-Host ""

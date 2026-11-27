@@ -206,6 +206,27 @@ def _meta(fields: FieldDictionary, metric: str) -> tuple[str, str]:
     return (spec.name_cn if spec else metric, spec.unit if spec else "")
 
 
+def _draw_bands(
+    metric: str,
+    ranges: ReferenceRanges,
+    bands: list[dict[str, Any]],
+    *,
+    unified: bool,
+    gender_dependent: bool,
+) -> list[dict[str, Any]]:
+    """图上真正要画的参考区间线。
+
+    统一口径数据集（用户声明"本数据集没有性别"）必须只画**一条** default 区间：
+    照参考表画男、女两条，等于在图上画出两条从未参与判定的线——读者会以为这次判定
+    是按性别做的，而实际上所有样本用的都是同一条（FR-16 / BR-17 的例外路径）。
+    """
+    if unified and gender_dependent and ranges is not None:
+        effective = ranges.default.get(metric)
+        if effective is not None:
+            return [{"gender": "all", "low": effective.low, "high": effective.high}]
+    return list(bands)
+
+
 def box_chart(
     frame: pd.DataFrame,
     long: pd.DataFrame,
@@ -281,6 +302,7 @@ def box_chart(
         effective = ranges.default.get(metric)
         if effective is not None:
             unified_bands = (effective.low, effective.high)
+    bands = _draw_bands(metric, ranges, bands, unified=unified, gender_dependent=gender_dependent)
     caption = caption_box(
         metric_cn=name_cn,
         unit=unit,
@@ -514,11 +536,11 @@ def hist_chart(
     )
 
     option: dict[str, Any] = {
-        # top 留到 84：副标题可能是一整句话（"显示 0–2.3（覆盖 98.9%），另有 1,010 条…"），
-        # 留窄了它会压到 y 轴最高刻度上，看起来像刻度值丢了
+        # top 留到 104：副标题可能是一整句话（"显示 0–2.3（覆盖 98.9%），另有 1,010 条…"），
+        # 再往下还要放参考区间竖线的两行标签（男/女各一行），留窄了会互相压住
         "title": {"text": f"{name_cn} 分布", "top": 0},
         "tooltip": {"trigger": "axis"},
-        "grid": {"left": 72, "right": 24, "top": 84, "bottom": 64},
+        "grid": {"left": 72, "right": 24, "top": 104, "bottom": 64},
         "xAxis": {
             "type": "category",
             "data": labels,
@@ -543,25 +565,32 @@ def hist_chart(
                 f"另有 {bucket['outside_count']:,} 条超出显示范围（最大 {fmt(bucket['outside_max'], decimals)}）"
             )
         option["title"]["subtext"] = "，".join(parts)
+    # 统一口径时只画一条 default 区间（详见 _draw_bands 的说明）
+    bands = _draw_bands(metric, ranges, bands, unified=unified, gender_dependent=gender_dependent)
     if bands and labels:
+        # 参考区间的文字放在竖线**顶端外侧**，分两行摆：男在近行、女在远行。
+        # 原来 labels 走 ECharts 默认位置，正好和副标题挤在同一行（"下限 27 / 上限 34"
+        # 悬在标题下面像第二个副标题），而且男女两条线的字会在同一高度互相压住。
+        split_gender = any(band["gender"] in {"male", "female"} for band in bands)
         lines = []
         for band in bands:
             prefix = {"male": "男", "female": "女"}.get(band["gender"], "")
             style = {"type": "dashed" if band["gender"] != "female" else "dotted"}
-            lines.append(
-                {
-                    "xAxis": _nearest_label(labels, band["low"]),
-                    "lineStyle": style,
-                    "label": {"formatter": f"{prefix}下限 {fmt(band['low'], decimals)}"},
-                }
-            )
-            lines.append(
-                {
-                    "xAxis": _nearest_label(labels, band["high"]),
-                    "lineStyle": style,
-                    "label": {"formatter": f"{prefix}上限 {fmt(band['high'], decimals)}"},
-                }
-            )
+            # 分性别时女的那一行再往外挪 14 px，两行字互不遮挡；统一口径时只有一组，同在近行
+            distance = 6 if (not split_gender or band["gender"] != "female") else 20
+            for edge, word in (("low", "下限"), ("high", "上限")):
+                lines.append(
+                    {
+                        "xAxis": _nearest_label(labels, band[edge]),
+                        "lineStyle": style,
+                        "label": {
+                            "formatter": f"{prefix}{word} {fmt(band[edge], decimals)}",
+                            "position": "end",
+                            "distance": distance,
+                            "fontSize": 10,
+                        },
+                    }
+                )
         option["series"][0]["markLine"] = {"symbol": "none", "silent": True, "data": lines}
 
     points, sampled = _points(long, metric, settings.points_limit)

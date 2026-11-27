@@ -122,9 +122,16 @@ cd backend
 
 - 想退回 SQLite：把 `backend/.env` 里的 `CBC_DATABASE_URL` 换成 sqlite 那行（文件里已注释好）。
   两套库的数据互不影响，切换后账号要重新注册。
-- WSL 关机后 Windows 侧连不上是正常的（`Test-NetConnection 127.0.0.1 -Port 5432` 会变 False），
-  `wsl -u root -- service postgresql start` 即可；后端连不上时 `pool_pre_ping` 会报"连接意外关闭"，
-  不是配置错。
+- **WSL 空闲会自动停机**，一停 `127.0.0.1:5432` 就消失（`Test-NetConnection 127.0.0.1 -Port 5432` 变 False），
+  后端这时报的是连接超时，不是配置错。`start.ps1` 已经替你处理：它先确认 5432 通，再留一个
+  `wsl ... tail -f /dev/null` 的常驻会话把发行版钉住（pid 记在 `.run/wsl.pid`，`stop.ps1` 一起收）。
+  手动排查时：
+  ```powershell
+  wsl -d Ubuntu -u root service postgresql start
+  wsl -e bash -lc "pg_lsclusters"          # 看 5432 是否 online
+  ```
+- 如果 `.wslconfig` 里是 `networkingMode=mirrored`（本机就是），Windows 访问 WSL 的 localhost 依赖
+  WSL 自身在跑；发行版一停，端口就"看起来在、连不上"——所以上面那个常驻会话是必需的，不是偷懒。
 - 集成测试 `tests/test_pg_dialect.py` 跑在真库上时会**自己造行再删行**，不碰现有数据。
 
 ---
