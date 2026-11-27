@@ -681,6 +681,14 @@ def corr_chart(
     plot_px = cell_px * count
     label_px = 11 if cell_px >= 34 else (10 if cell_px >= 26 else 9)
 
+    # 每一对的样本量：ρ 是"这两列都非空的那批人"算出来的，各对并不相同。
+    # 只写 ρ 不写 n，读者会拿 n=94 的 0.93 与 n=40 的 0.93 当同等证据（P2-②）。
+    pair_n: dict[frozenset[str], int] = {}
+    for pair in pairs:
+        left, right, size = pair.get("a"), pair.get("b"), pair.get("n")
+        if left and right and isinstance(size, int):
+            pair_n[frozenset({left, right})] = size
+
     data: list[dict[str, Any]] = []
     for i, a in enumerate(metrics):
         for j, b in enumerate(metrics):
@@ -688,13 +696,15 @@ def corr_chart(
             if value is None:
                 continue
             rho = round(float(value), 2)
+            size = pair_n.get(frozenset({a, b}))
             # 轴上是短名（HGB/MCHC/NEUT%），全名放在悬停里：
             # 15 个中文全名横排一定叠字，而短名读不动时要能立刻查到全名。
             # heatmap 的 {c} 是整个 [x, y, ρ] 数组，模板字符串格式化不了，
-            # 所以把「全名 × 全名：ρ = x.xx」直接拼进 name，用 {b} 显示。
+            # 所以把「全名 × 全名：ρ = x.xx（n = N）」直接拼进 name，用 {b} 显示。
+            detail = f"ρ = {rho:.2f}" + (f"（n = {size}）" if size is not None else "")
             item: dict[str, Any] = {
                 "value": [j, i, rho],
-                "name": f"{names[i]} × {names[j]}：ρ = {rho:.2f}",
+                "name": f"{names[i]} × {names[j]}：{detail}",
             }
             # 对角线恒为 1，写出来只是噪声；空格子代表"该指标无数据"，两者要能区分
             item["label"] = {"show": False} if a == b else {"formatter": f"{rho:.2f}"}
@@ -768,6 +778,16 @@ def corr_chart(
             coupling=bool(sample.get("coupling")),
         )
 
+    # 各对样本量不一致时，副标题必须说清楚：ρ 只在同一对内部可比
+    sizes = sorted(pair_n.values())
+    spread_note = ""
+    if sizes and sizes[0] != sizes[-1]:
+        spread_note = f"各格样本量不同（n = {sizes[0]}–{sizes[-1]}），ρ 只在同一对内部可比"
+        option["title"]["subtext"] = (
+            "格内为 ρ；对角线恒为 1，已隐去；空白格表示该指标无数据；"
+            f"悬停可看全名与样本量。{spread_note}"
+        )
+
     return {
         "kind": "corr",
         "metric": None,
@@ -784,6 +804,9 @@ def corr_chart(
             "labels": dict(zip(metrics, short, strict=False)),
             "full_names": dict(zip(metrics, names, strict=False)),
             "cell_px": cell_px,
+            "n_min": sizes[0] if sizes else None,
+            "n_max": sizes[-1] if sizes else None,
+            "n_note": spread_note,
             "notes": stats_payload.get("notes", []),
             "coupled_pairs": [p for p in pairs if p.get("coupling")],
         },
