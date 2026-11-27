@@ -43,7 +43,13 @@ export function SegmentedTabs<T extends string>({
   }
 
   return (
-    <div ref={container} className={`seg ${className}`} role="tablist" aria-label={ariaLabel} onKeyDown={onKeyDown}>
+    <div
+      ref={container}
+      className={`seg overflow-x-auto ${className}`}
+      role="tablist"
+      aria-label={ariaLabel}
+      onKeyDown={onKeyDown}
+    >
       {items.map((item) => {
         const selected = item.key === value;
         return (
@@ -53,7 +59,7 @@ export function SegmentedTabs<T extends string>({
             role="tab"
             aria-selected={selected}
             tabIndex={selected ? 0 : -1}
-            className="seg-item"
+            className="seg-item shrink-0 whitespace-nowrap"
             onClick={() => onChange(item.key)}
           >
             {item.label}

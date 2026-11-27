@@ -44,7 +44,7 @@ export function Layout() {
   return (
     <div className="flex h-screen overflow-hidden" style={{ backgroundColor: "var(--color-bg-page)" }}>
       <aside
-        className="flex h-full w-[232px] shrink-0 flex-col overflow-y-auto border-r px-2.5 pb-3 pt-3"
+        className="hidden h-full w-[232px] shrink-0 flex-col overflow-y-auto border-r px-2.5 pb-3 pt-3 md:flex"
         style={{ borderColor: "var(--color-border)", backgroundColor: "var(--color-bg-surface)" }}
       >
         <div className="flex items-center gap-2 px-2 pb-4">
@@ -171,7 +171,33 @@ export function Layout() {
           </div>
         </header>
 
-        <main className="min-w-0 flex-1 overflow-y-auto p-4">
+        {/* 窄屏（<768px）没有侧栏，导航改成横向可滚的一条。
+            刻意不做抽屉：五个入口，滑一下比打开抽屉再点一下少一步。 */}
+        <nav
+          className="flex shrink-0 items-center gap-1 overflow-x-auto border-b px-2 py-1.5 md:hidden"
+          style={{ borderColor: "var(--color-border)", backgroundColor: "var(--color-bg-surface)" }}
+          aria-label="主导航（窄屏）"
+        >
+          {NAV_GROUPS.flatMap((group) => group.items).map((item) => {
+            const Icon = item.icon;
+            return (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                end={item.end}
+                className={() => `nav-item shrink-0 whitespace-nowrap${item.to === "/" && onDataset ? " is-active" : ""}`}
+              >
+                <Icon />
+                <span>{item.label}</span>
+              </NavLink>
+            );
+          })}
+          <NavLink to="/account" className="nav-item shrink-0 whitespace-nowrap">
+            <span>账号</span>
+          </NavLink>
+        </nav>
+
+        <main className="min-w-0 flex-1 overflow-y-auto p-3 sm:p-4">
           <Outlet />
         </main>
       </div>

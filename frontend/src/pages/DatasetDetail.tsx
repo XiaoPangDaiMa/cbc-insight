@@ -126,7 +126,7 @@ export function DatasetDetail() {
           <h1 className="truncate text-base font-semibold" style={{ color: "var(--color-text-primary)" }}>
             {dataset.data.dataset.name}
           </h1>
-          <p className="mt-0.5 text-[11px]" style={{ color: "var(--color-text-muted)" }}>
+          <p className="mt-0.5 hidden text-[11px] sm:block" style={{ color: "var(--color-text-muted)" }}>
             {dataset.data.dataset.rows} 行 · 参考区间 {dataset.data.dataset.ri_version} · {dataset.data.dataset.health}
           </p>
         </div>

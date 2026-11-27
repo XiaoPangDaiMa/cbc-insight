@@ -676,9 +676,10 @@ def corr_chart(
     names = [_meta(fields, m)[0] for m in metrics]
 
     count = max(len(metrics), 1)
-    cell_px = max(22, min(44, 420 // count))  # 指标多则缩小格子，绘制区不超过 420 px
+    # 15 个指标时用 30 px 的格子（绘制区 450 px）：再小的话格内的 ρ 与轴上的短名会挤在一起
+    cell_px = max(24, min(48, 460 // count))
     plot_px = cell_px * count
-    label_px = 11 if cell_px >= 34 else (9 if cell_px >= 26 else 8)
+    label_px = 11 if cell_px >= 34 else (10 if cell_px >= 26 else 9)
 
     data: list[dict[str, Any]] = []
     for i, a in enumerate(metrics):
@@ -687,7 +688,14 @@ def corr_chart(
             if value is None:
                 continue
             rho = round(float(value), 2)
-            item: dict[str, Any] = {"value": [j, i, rho]}
+            # 轴上是短名（HGB/MCHC/NEUT%），全名放在悬停里：
+            # 15 个中文全名横排一定叠字，而短名读不动时要能立刻查到全名。
+            # heatmap 的 {c} 是整个 [x, y, ρ] 数组，模板字符串格式化不了，
+            # 所以把「全名 × 全名：ρ = x.xx」直接拼进 name，用 {b} 显示。
+            item: dict[str, Any] = {
+                "value": [j, i, rho],
+                "name": f"{names[i]} × {names[j]}：ρ = {rho:.2f}",
+            }
             # 对角线恒为 1，写出来只是噪声；空格子代表"该指标无数据"，两者要能区分
             item["label"] = {"show": False} if a == b else {"formatter": f"{rho:.2f}"}
             data.append(item)
@@ -695,17 +703,18 @@ def corr_chart(
     option: dict[str, Any] = {
         "title": {
             "text": "指标相关性（Spearman）",
-            "subtext": "格内为 ρ；对角线恒为 1，已隐去；空白格表示该指标无数据",
+            "subtext": "格内为 ρ；对角线恒为 1，已隐去；空白格表示该指标无数据；悬停可看全名",
             "subtextStyle": {"fontSize": 11},
         },
-        "tooltip": {"position": "top"},
+        "tooltip": {"trigger": "item", "position": "top", "formatter": "{b}"},
         "grid": {"left": "center", "top": 64, "width": plot_px, "height": plot_px, "containLabel": False},
         "xAxis": {
             "type": "category",
             "data": short,
             "splitArea": {"show": False},
             "axisTick": {"show": False},
-            "axisLabel": {"interval": 0, "fontSize": 11, "rotate": 0},
+            # 横轴斜 45°：15 个短名横排会互相压住，斜排后每个标签独占自己的宽度
+            "axisLabel": {"interval": 0, "fontSize": label_px, "rotate": 45, "align": "right", "margin": 8},
         },
         "yAxis": {
             "type": "category",
@@ -713,16 +722,18 @@ def corr_chart(
             "inverse": True,
             "splitArea": {"show": False},
             "axisTick": {"show": False},
-            "axisLabel": {"interval": 0, "fontSize": 11},
+            "axisLabel": {"interval": 0, "fontSize": label_px},
         },
         "visualMap": {
             "min": -1,
             "max": 1,
             "precision": 1,
             "calculable": True,
-            "orient": "horizontal",
-            "left": "center",
-            "bottom": 0,
+            # 竖排在右侧、贴卡片边：横排在底部会正好压住斜排的横轴标签
+            "orient": "vertical",
+            "right": 8,
+            "top": "middle",
+            "itemHeight": 160,
         },
         "series": [
             {
