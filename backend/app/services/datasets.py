@@ -450,4 +450,11 @@ COLUMN_LABELS: dict[str, str] = {
     "pct_above": "偏高占比",
     "pct_na": "未判定占比",
     "decimals": "小数位",
+    # 五分类绝对值（v1.9，check_only）：它们会出现在预览与导出的宽表里，
+    # 但不出现在指标卡、图表与异常清单里。
+    "neut_abs": "中性粒细胞绝对值",
+    "lymph_abs": "淋巴细胞绝对值",
+    "mono_abs": "单核细胞绝对值",
+    "eo_abs": "嗜酸性粒细胞绝对值",
+    "baso_abs": "嗜碱性粒细胞绝对值",
 }

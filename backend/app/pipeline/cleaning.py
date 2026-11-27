@@ -241,7 +241,14 @@ def _fill_missing(
 
     group_keys = [k for k in ("gender", "age_band") if k in frame.columns]
     numeric_columns = [
-        c for c in frame.columns if c in fields.fields and fields.spec(c) and fields.spec(c).dtype == "float"
+        c
+        for c in frame.columns
+        if c in fields.fields
+        and fields.spec(c)
+        and fields.spec(c).dtype == "float"
+        # check_only 字段（五分类绝对值）不填充：它们只用于 BR-23 交叉校验，
+        # 填一个中位数进去等于"替用户编一份对的绝对值"，校验立刻全绿。
+        and not fields.spec(c).check_only
     ]
 
     imputed = pd.DataFrame(False, index=frame.index, columns=numeric_columns, dtype=bool)

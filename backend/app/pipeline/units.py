@@ -22,6 +22,13 @@ SCALE_RULES: dict[str, tuple[tuple[float | None, float | None, str, float], ...]
     # 310000（个/µL），与 310（×10⁹/L）差 1000 倍，并非等价。这里补上换算规则，
     # 否则整列会被判成"偏高"（B1 真实数据体检发现，已回写 SRS 3.4）。
     "plt": ((0, 2000, "10^9/L", 1.0), (2000, 10000, "", 1.0), (10000, None, "个/µL", 0.001)),
+    # 五分类绝对值（v1.9，check_only）：与 WBC 同一量级，按同样的三档判。
+    # 它们不参与判定，但仍要归一——否则 WBC 换算过、绝对值没换算，BR-23 的
+    # 交叉校验会把"单位没统一"报成"两列数据打架"。
+    **dict.fromkeys(
+        ("neut_abs", "lymph_abs", "mono_abs", "eo_abs", "baso_abs"),
+        ((0, 20, "10^9/L", 1.0), (20, 100, "", 1.0), (100, None, "个/µL", 0.001)),
+    ),
 }
 
 NORMALIZED_UNITS: dict[str, str] = {
@@ -30,6 +37,8 @@ NORMALIZED_UNITS: dict[str, str] = {
     "wbc": "10^9/L",
     "rbc": "10^12/L",
     "plt": "10^9/L",
+    # 五分类绝对值与 WBC 同单位
+    **dict.fromkeys(("neut_abs", "lymph_abs", "mono_abs", "eo_abs", "baso_abs"), "10^9/L"),
 }
 
 # 只统一标签、不做数值换算的指标（目前为空：plt 已补上换算规则）

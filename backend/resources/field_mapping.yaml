@@ -25,6 +25,14 @@ aliases:
   eo_pct:    [EO%, EOS%, 嗜酸性粒细胞百分比, EO_pct, Eosinophil]
   baso_pct:  [BA%, BASO%, 嗜碱性粒细胞百分比, BA_pct, Basophil]
 
+  # 五分类绝对值（v1.9）：只用于交叉校验（BR-23），不参与判定。
+  # 带 # 的写法来自 Sysmex / 迈瑞等仪器的导出表头。
+  neut_abs:  ["NE#", "NEUT#", 中性粒细胞绝对值, 中性粒细胞计数, NEUT_abs]
+  lymph_abs: ["LY#", "LYMPH#", 淋巴细胞绝对值, 淋巴细胞计数, LYMPH_abs]
+  mono_abs:  ["MO#", "MONO#", 单核细胞绝对值, 单核细胞计数, MONO_abs]
+  eo_abs:    ["EO#", "EOS#", 嗜酸性粒细胞绝对值, 嗜酸性粒细胞计数, EO_abs]
+  baso_abs:  ["BA#", "BASO#", 嗜碱性粒细胞绝对值, 嗜碱性粒细胞计数, BA_abs]
+
 # 性别取值映射（3.3：male / female / unknown；常见 M/F、男/女、1/2）
 gender_values:
   male:    [male, m, 男, 1, boy, M, Male]

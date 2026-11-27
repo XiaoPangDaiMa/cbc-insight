@@ -28,10 +28,22 @@ fields:
   eo_pct:    { dtype: float, unit: "%",       domain: [0, 100],    nullable: true,  name_cn: "嗜酸性粒细胞百分比" }
   baso_pct:  { dtype: float, unit: "%",       domain: [0, 100],    nullable: true,  name_cn: "嗜碱性粒细胞百分比" }
 
+  # 五分类绝对值（v1.9）：只做"能否独立复算百分比"的交叉校验，不参与判定。
+  # check_only: true 让它们绕开判定、指标卡、图表与异常清单；
+  # 值域按 0–200（10^9/L）给，超过基本可以断定是单位或列位错。
+  neut_abs:  { dtype: float, unit: "10^9/L",  domain: [0, 200],    nullable: true,  check_only: true, name_cn: "中性粒细胞绝对值" }
+  lymph_abs: { dtype: float, unit: "10^9/L",  domain: [0, 200],    nullable: true,  check_only: true, name_cn: "淋巴细胞绝对值" }
+  mono_abs:  { dtype: float, unit: "10^9/L",  domain: [0, 200],    nullable: true,  check_only: true, name_cn: "单核细胞绝对值" }
+  eo_abs:    { dtype: float, unit: "10^9/L",  domain: [0, 200],    nullable: true,  check_only: true, name_cn: "嗜酸性粒细胞绝对值" }
+  baso_abs:  { dtype: float, unit: "10^9/L",  domain: [0, 200],    nullable: true,  check_only: true, name_cn: "嗜碱性粒细胞绝对值" }
+
 # 呈现顺序（前端指标卡、导出列顺序的唯一依据）
+# 注意：check_only 字段必须列在这里，否则 metric_fields() 之外的取用拿不到它们；
+# 它们不会出现在指标卡上（is_metric 为假）。
 display_order:
   [hgb, rbc, wbc, plt, hct, mcv, mch, mchc, rdw, mpv,
-   neut_pct, lymph_pct, mono_pct, eo_pct, baso_pct, age, gender]
+   neut_pct, lymph_pct, mono_pct, eo_pct, baso_pct,
+   neut_abs, lymph_abs, mono_abs, eo_abs, baso_abs, age, gender]
 
 # 小数位（SRS 4.4.6）
 decimals:
@@ -50,4 +62,9 @@ decimals:
   mono_pct: 1
   eo_pct: 1
   baso_pct: 1
+  neut_abs: 2
+  lymph_abs: 2
+  mono_abs: 2
+  eo_abs: 2
+  baso_abs: 2
   age: 0

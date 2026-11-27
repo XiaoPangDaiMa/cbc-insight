@@ -26,11 +26,19 @@ class FieldSpec:
     nullable: bool
     name_cn: str
     enum: tuple[str, ...] | None = None
+    check_only: bool = False
+    """只用于交叉校验、不参与判定的字段（v1.9：五分类绝对值）。
+
+    它们有参考价值的地方是"能独立复算一次百分比"（NE# ≈ WBC × NE% / 100），
+    而不是"这个人的中性粒细胞高不高"——后者看百分比就够，而给绝对值配区间
+    等于凭空多出一套标准。所以把它们标成 check_only：可以映射进来做校验，
+    但永远不进判定、指标卡、图表与异常清单。
+    """
 
     @property
     def is_metric(self) -> bool:
         """血液指标（可参与"偏高 / 偏低"判定的数值字段）。"""
-        return self.dtype == "float"
+        return self.dtype == "float" and not self.check_only
 
     def in_domain(self, value: float) -> bool:
         if self.domain is None:
@@ -67,6 +75,7 @@ class FieldDictionary:
                 nullable=bool(spec.get("nullable", True)),
                 name_cn=str(spec.get("name_cn", name)),
                 enum=tuple(spec["enum"]) if spec.get("enum") else None,
+                check_only=bool(spec.get("check_only", False)),
             )
         req = raw.get("required_fields") or {}
         return cls(
@@ -85,6 +94,10 @@ class FieldDictionary:
     def metric_fields(self) -> tuple[str, ...]:
         """按 display_order 排列的血液指标。"""
         return tuple(n for n in self.display_order if n in self.fields and self.fields[n].is_metric)
+
+    def check_fields(self) -> tuple[str, ...]:
+        """只做交叉校验的字段（v1.9 五分类绝对值），按 display_order 排列。"""
+        return tuple(n for n in self.display_order if n in self.fields and self.fields[n].check_only)
 
     def name_cn(self, name: str) -> str:
         spec = self.fields.get(name)

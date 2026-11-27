@@ -139,8 +139,14 @@ def run_pipeline(
     mapped = mapped.loc[:, [c for c in mapped.columns if c in fields.fields or c in ("gender", "age")]]
     mapped = mapped.copy()
 
-    decisions = detect_all(mapped, tuple(fields.metric_fields()), forced=forced_units)
-    ambiguous = [d for d in decisions if d.ambiguous]
+    # 五分类绝对值也过一遍单位归一（否则 BR-23 会把"单位没统一"报成"数据打架"），
+    # 但它们落在模糊带时**不阻塞上传**：这些列只用于交叉校验，不该有一条校验规则
+    # 把整个数据集挡在门外。
+    metric_targets = tuple(fields.metric_fields())
+    check_targets = tuple(fields.check_fields())
+    decisions = detect_all(mapped, metric_targets + check_targets, forced=forced_units)
+    metric_set = set(metric_targets)
+    ambiguous = [d for d in decisions if d.ambiguous and d.metric in metric_set]
     if ambiguous:
         first = ambiguous[0]
         raise UnitAmbiguousError(first.metric, float(first.median or 0), list(first.candidates))
@@ -154,7 +160,9 @@ def run_pipeline(
 
     # --- S3 校验（不改数据）---
     started = time.perf_counter()
-    validated, report = validate(mapped, fields, unit_decisions=decisions)
+    validated, report = validate(
+        mapped, fields, unit_decisions=[d for d in decisions if d.metric in metric_set]
+    )
     out.quality = report.to_payload()
     _write_json(out.quality, work_dir / "quality.json")
     out.artifacts["quality"] = str(work_dir / "quality.json")

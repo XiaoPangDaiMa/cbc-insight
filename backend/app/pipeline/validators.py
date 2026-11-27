@@ -111,6 +111,8 @@ class Validated:
     missing_columns: dict[str, int] = field(default_factory=dict)
     #: 每条恒等式各违反了哪些行，键是被"证伪"的那个字段（BR-05 + 两条派生理）
     identity_violations: dict[str, tuple[int, ...]] = field(default_factory=dict)
+    #: 五分类绝对值的交叉校验结果（BR-23）：只报不良、不进 DQ-05、不置空任何列
+    check_violations: dict[str, tuple[int, ...]] = field(default_factory=dict)
 
     def dirty_rows(self) -> set[int]:
         rows: set[int] = set(self.duplicate_rows)
@@ -240,6 +242,57 @@ def find_logic_violations(numeric: pd.DataFrame) -> dict[str, tuple[int, ...]]:
     return violations
 
 
+#: 五分类绝对值 ↔ 百分比（BR-23）。形式为 (绝对值字段, 百分比字段, 现象描述)。
+#:
+#: 这两列互为镜像：NE# 应当等于 WBC × NE% / 100。它们**不参与判定**
+#: （字段字典里 check_only），只用来抓"整列错位一格"这类错误——这类错误在
+#: 百分比上看不出来，因为每列都在 0–100 的合法区间里；而绝对值一旦和对应的
+#: 百分比复算不上，就说明这两列不来自同一个人同一支血。
+CHECK_RULES: tuple[tuple[str, str, str], ...] = (
+    ("neut_abs", "neut_pct", "中性粒细胞绝对值与 WBC×百分比 对不上"),
+    ("lymph_abs", "lymph_pct", "淋巴细胞绝对值与 WBC×百分比 对不上"),
+    ("mono_abs", "mono_pct", "单核细胞绝对值与 WBC×百分比 对不上"),
+    ("eo_abs", "eo_pct", "嗜酸性粒细胞绝对值与 WBC×百分比 对不上"),
+    ("baso_abs", "baso_pct", "嗜碱性粒细胞绝对值与 WBC×百分比 对不上"),
+)
+
+#: 交叉校验的相对容差，沿用恒等式的 15%。
+CHECK_TOLERANCE = 0.15
+
+#: 绝对容差下限（单位 10^9/L）。**必须有**：报告里的绝对值一般只保留 1 位小数，
+#: 而 EO#/BA# 本身常在 0.0–0.2 之间，纯相对误差会把"四舍五入"判成"数据错误"——
+#: 实测 DS-02 上按纯 15% 判 BA# 有 92.7% 的行"违规"，加上 0.1 的下限后是 0 行。
+CHECK_ABSOLUTE_FLOOR = 0.1
+
+
+def find_check_violations(numeric: pd.DataFrame) -> dict[str, tuple[int, ...]]:
+    """BR-23：五分类绝对值能否由 WBC × 百分比复算出来。
+
+    与 BR-05 的区别：恒等式能指出"哪一列是被算出来的"（HCT 由 RBC×MCV 定义），
+    所以只置空那一列；这里是两列互为镜像、分不清谁错，因此**只报不删不置空**。
+    """
+    needed = {"wbc", "neut_abs", "lymph_abs", "mono_abs", "eo_abs", "baso_abs"}
+    if not needed.issubset(set(numeric.columns)):
+        # 只校验数据里真的存在的那几条（很多导出表根本没有绝对值列）
+        pairs = [rule for rule in CHECK_RULES if rule[0] in numeric.columns and rule[1] in numeric.columns]
+        if not pairs or "wbc" not in numeric.columns:
+            return {}
+    else:
+        pairs = list(CHECK_RULES)
+    violations: dict[str, tuple[int, ...]] = {}
+    for target, pct, _message in pairs:
+        subset = numeric[[target, pct, "wbc"]].dropna()
+        if subset.empty:
+            continue
+        expected = subset["wbc"] * subset[pct] / 100
+        diff = (subset[target] - expected).abs()
+        tolerance = (expected.abs() * CHECK_TOLERANCE).clip(lower=CHECK_ABSOLUTE_FLOOR)
+        rows = tuple(int(i) for i in subset.index[diff > tolerance])
+        if rows:
+            violations[target] = rows
+    return violations
+
+
 def validate(
     frame: pd.DataFrame,
     fields: FieldDictionary,
@@ -251,6 +304,7 @@ def validate(
     duplicates = find_duplicates(frame)
     identity = find_logic_violations(numeric)
     logic = tuple(sorted({row for rows in identity.values() for row in rows}))
+    check = find_check_violations(numeric)
 
     completeness: dict[str, float] = {}
     for column in frame.columns:
@@ -265,6 +319,7 @@ def validate(
         duplicate_rows=duplicates,
         missing_columns={c: int(v) for c, v in frame.isna().sum().items()},
         identity_violations=identity,
+        check_violations=check,
     )
     report = build_report(frame, fields, validated, unit_decisions)
     return validated, report
@@ -386,6 +441,25 @@ def build_report(
                 rows=rows_hit,
                 message=f"{len(rows_hit)} 行 {message}",
                 fix=f"{target} 置空",
+            )
+        )
+
+    # --- 五分类绝对值交叉校验（BR-23）：只报不良 ---
+    # 刻意用 WARN 而不是 ERROR，且不进 DQ-05：这一条的分母（绝对值列）在很多
+    # 导出表里根本不存在，把它算进质量分会让"有绝对值列的数据集"天然分数更低。
+    for target, _pct, message in CHECK_RULES:
+        rows_hit = validated.check_violations.get(target, ())
+        if not rows_hit:
+            continue
+        issues.append(
+            Issue(
+                code="BR-23",
+                field=target,
+                severity="WARN",
+                count=len(rows_hit),
+                rows=rows_hit,
+                message=f"{len(rows_hit)} 行 {message}（容差 15%，下限 {CHECK_ABSOLUTE_FLOOR} 10^9/L）",
+                fix="不置空、不判定；请核对这两列是否来自同一份报告",
             )
         )
 
