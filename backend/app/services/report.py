@@ -61,6 +61,7 @@ PATTERN_TEXT = {
     "SINGLE_ABNORMAL": "单项异常（1 项超出参考区间，未匹配特定组合）",
     "MIXED_ABNORMAL": "两项异常（2 项均超出，未匹配特定组合）",
     "UNCLASSIFIED": "其他异常组合（v1.8 之前落库的旧值）",
+    "INSUFFICIENT_METRICS": "能判定的指标不足 3 个，未给模式",
     "NORMAL": "各项均在参考区间内",
 }
 

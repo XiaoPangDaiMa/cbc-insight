@@ -75,6 +75,7 @@ const PATTERN_TEXT: Record<string, string> = {
   SINGLE_ABNORMAL: "单项指标超出参考区间",
   MIXED_ABNORMAL: "两项指标超出参考区间",
   UNCLASSIFIED: "其他异常组合（旧数据）",
+  INSUFFICIENT_METRICS: "可判定指标不足 3 个，未给模式",
 };
 
 export function patternLabel(pattern: string | null | undefined): string {

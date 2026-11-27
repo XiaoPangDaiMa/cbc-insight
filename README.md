@@ -323,7 +323,7 @@ cbc-insight/
 
 ```powershell
 cd cbc-insight\backend
-.venv\Scripts\python.exe -m pytest -q        # 197 passed（其中 4 条只在 Postgres 上跑）
+.venv\Scripts\python.exe -m pytest -q        # 214 passed（其中 4 条只在 Postgres 上跑）
 .venv\Scripts\ruff.exe check app tests ..\scripts alembic   # All checks passed
 
 cd ..\frontend
@@ -397,10 +397,10 @@ backend\.venv\Scripts\python.exe scripts\gen_theme.py --check  # 校验产物是
 | FR-04 校验 | DQ-01~06、值域/重复/逻辑一致性（`\|hct − rbc×mcv/10\|/hct > 15%`） |
 | FR-05 清洗 | 类型修复 → 置空 → 剔列（核心三字段豁免）→ 去重 → 逻辑置空 → 删全空行 → 分组中位数填充 |
 | FR-06 对比 | 清洗前后行数、按原因计数的删除明细 |
-| FR-07~13 图 | 箱线（按性别分组 + 两组参考带，须端取 1.5×IQR、离群点画散点、轴窗口按 `Q3±3×IQR` 收住）、直方（区间内外占比，零值可单列一桶、长尾不撑满横轴）、相关热力（Spearman + 数学耦合标注）、散点、**质量图（完整率条形 + DQ-01~06 + 剔除原因饼图，三块同屏）** |
+| FR-07~13 图 | 箱线（按性别分组 + 两组参考带，须端取 1.5×IQR、离群点画散点、轴窗口按 `Q3±3×IQR` 收住）、直方（区间内外占比，零值可单列一桶、长尾不撑满横轴）、相关热力（Spearman + 数学耦合标注 + **每格标出该对样本量 n，并提示各格 n 不同时 ρ 只在同一对内部可比**）、散点、**质量图（完整率条形 + DQ-01~06 + 剔除原因饼图，三块同屏）** |
 | FR-14 筛选 | 指标阈值（< / ≤ / > / ≥ / 介于 / =）+ 性别 + 年龄区间，条件之间是"与"；命中数与导出行数同源 |
 | FR-15 筛选视图 | 分页表格（20 行/页），条件回显，0 命中给空态而不是空白页 |
-| FR-16/17 判定 | 11 种模式 + `UNCLASSIFIED` 兜底、严重度排序；`gender` 缺失判 `NA`，不套男性区间；`unified_ranges` 显式开关（用户勾选才按统一区间判，结果标 `unified`） |
+| FR-16/17 判定 | 11 种模式 + `SINGLE_ABNORMAL` / `MIXED_ABNORMAL` 兜底、严重度排序；**可判定指标 < 3 时给 `INSUFFICIENT_METRICS`（不给模式）**；`gender` 缺失判 `NA`，不套男性区间；`unified_ranges` 显式开关（用户勾选才按统一区间判，结果标 `unified`） |
 | FR-18/19/35 导出 | UTF-8-BOM CSV + 同名 `*_meta.json`，预览与下载列名/顺序/数量完全一致；异常清单默认只含异常样本、按异常指标数降序；看不懂的筛选条件返回 42201 而不是"当作没写" |
 | FR-30 指标状态 | 常驻面板，三通道编码（颜色 + ↑↓—∅ + 文字），`MIXED` 显示"两侧均异常" |
 | FR-31 体检单 | 条长用标准化位置 `pos = (x − low) / (high − low)`，量纲不同也可比 |
@@ -422,7 +422,9 @@ backend\.venv\Scripts\python.exe scripts\gen_theme.py --check  # 校验产物是
 ## 九、六条实现与需求文档不一致的地方（待同步回 SRS）
 
 1. **BR-07 / 5.1 缺兜底模式**：11 种模式之外，"1–2 项异常但不匹配任何模式"的样本无处归类。
-   实现新增 `UNCLASSIFIED`（其他异常组合）；异常 ≥3 项仍归 `MULTI_ABNORMAL`。
+   实现新增 `SINGLE_ABNORMAL`（恰好 1 项）/ `MIXED_ABNORMAL`（恰好 2 项），
+   异常 ≥3 项仍归 `MULTI_ABNORMAL`；可判定指标 < 3 时给 `INSUFFICIENT_METRICS`
+   （见 5.1 前置检查）。这三条已回写 SRS v1.9，此处保留是因为历史数据集里仍有 `UNCLASSIFIED`。
 2. **3.4 把 rbc 的"万/µL"写成 ÷1000**：按量纲应是 **÷100**（1×10¹²/L = 100 万/µL）。
    已按 ÷100 实现；照文档原文实现会得到 10 倍偏差。
 3. **BR-03 未区分核心字段**：缺失率 > 30% 整列剔除若作用在 `hgb/wbc/plt` 上，
@@ -431,7 +433,9 @@ backend\.venv\Scripts\python.exe scripts\gen_theme.py --check  # 校验产物是
 
 4. **区间项数写成 16，实际是 15 项**：`reference_ranges.yaml` 里是
    `wbc/rbc/hgb/hct/mcv/mch/mchc/rdw/plt/mpv` + 五分类百分比（`neut/lymph/mono/eo/baso_pct`），
-   共 15 项——五分类**绝对值**（`NE#` 等）没有独立参考区间，在分类上属于派生量。
+   共 15 项——五分类**绝对值**（`NE#` 等）没有独立参考区间，在分类上属于派生量，
+   实现里标 `check_only`，只做 `绝对值 ≈ WBC × 百分比 / 100` 的一致性校验（BR-23），
+   命中报 `WARN`、不置空、不计入 DQ-05。
    SRS 3.5.1 与 FR-24 的"16 项"应改为 15 项；实现以 15 项为准（`ranges_service.RANGE_METRICS`）。
 
 5. **`/ranges-snapshot` 多返回一个 `has_snapshot`**：B3 之前判定的老数据没有快照，

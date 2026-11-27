@@ -21,6 +21,10 @@ from app.pipeline.reference import Interval, MetricStatus, ReferenceRanges
 
 CORE_METRICS: tuple[str, ...] = ("hgb", "rbc", "wbc", "plt", "hct", "mcv", "mch", "mchc")
 
+#: 少于此数就不给模式（P2-③）。取 3 与"至少 3 个血液指标才允许上传"（FR-02）同源：
+#: 一个指标都不够 3 时，模式能说明的信息量还不如直接写"数据不足"。
+MIN_JUDGED_METRICS = 3
+
 
 class Pattern(StrEnum):
     """5.1 异常模式表的可执行版本。"""
@@ -42,6 +46,10 @@ class Pattern(StrEnum):
     SINGLE_ABNORMAL = "SINGLE_ABNORMAL"
     MIXED_ABNORMAL = "MIXED_ABNORMAL"
     UNCLASSIFIED = "UNCLASSIFIED"  # 兼容旧数据：v1.8 之前落库的模式值
+    # P2-③：能判的指标太少时不给模式。
+    # "1 个指标偏高"和"9 个指标里 1 个偏高"是两件完全不同的事，
+    # 前者不该被写成"单项异常"——那会让一份单位没认对的数据看起来像有结论。
+    INSUFFICIENT_METRICS = "INSUFFICIENT_METRICS"
 
     @property
     def text_cn(self) -> str:
@@ -60,6 +68,7 @@ class Pattern(StrEnum):
             "SINGLE_ABNORMAL": "单项异常",
             "MIXED_ABNORMAL": "两项异常（未匹配组合）",
             "UNCLASSIFIED": "其他异常组合",
+            "INSUFFICIENT_METRICS": "可判定指标不足，未给模式",
         }[self.value]
 
 
@@ -249,7 +258,17 @@ def _minor_flag(
 
 
 def detect_patterns(flags: dict[str, MetricFlag]) -> list[Pattern]:
-    """BR-07 + 5.1：按受影响指标集合映射模式，返回命中的全部模式（有序）。"""
+    """BR-07 + 5.1：按受影响指标集合映射模式，返回命中的全部模式（有序）。
+
+    前提检查（P2-③）：**能判的指标不足 3 个时一律不给模式**。
+    ``NA`` 不是一种判定结果，它意味着"这次没法判"——缺性别、未成年、被质量闸置空、
+    或者这份数据的单位没认对。指标只剩一两个时，任何模式都是在噪声上命名，
+    而"单项异常"这种结论读起来又特别具体，最容易被当成发现。
+    """
+    judged = [m for m, f in flags.items() if f.status in (MetricStatus.LOW, MetricStatus.NORMAL, MetricStatus.HIGH)]
+    if len(judged) < MIN_JUDGED_METRICS:
+        return [Pattern.INSUFFICIENT_METRICS]
+
     status = {m: f.status for m, f in flags.items()}
 
     def is_(metric: str, want: MetricStatus) -> bool:
@@ -722,6 +741,12 @@ def _flag_frame_bulk(
     used = [m for m in wanted if m in status_of]
     abnormal_matrix = np.isin(status_matrix, (MetricStatus.LOW.value, MetricStatus.HIGH.value))
     n_abnormal = abnormal_matrix.sum(axis=1) if used else np.zeros(n, dtype="int64")
+    # P2-③：能判的指标数（LOW/NORMAL/HIGH 才算判过；NA 是"没法判"）
+    judged_matrix = np.isin(
+        status_matrix,
+        (MetricStatus.LOW.value, MetricStatus.NORMAL.value, MetricStatus.HIGH.value),
+    )
+    n_judged = judged_matrix.sum(axis=1) if used else np.zeros(n, dtype="int64")
     severity = np.round(deviation_matrix.max(axis=1), 2) if used else np.zeros(n)
 
     def is_(metric: str, state: MetricStatus) -> np.ndarray:
@@ -765,6 +790,13 @@ def _flag_frame_bulk(
     )
     primary = np.where(abnormal_any, np.where(first_hit == "", fallback, first_hit), Pattern.NORMAL.value)
     patterns = np.where(abnormal_any, np.where(first_hit == "", fallback, joined), Pattern.NORMAL.value)
+
+    # 能判的指标不足 3 个 → 一律改成"未给模式"，且优先于任何命中
+    # （与 detect_patterns 的逐行实现保持一致，两处任何一处漏改都会让
+    #  小样本与大数据走两条不同的口径）
+    thin = n_judged < MIN_JUDGED_METRICS
+    primary = np.where(thin, Pattern.INSUFFICIENT_METRICS.value, primary)
+    patterns = np.where(thin, Pattern.INSUFFICIENT_METRICS.value, patterns)
 
     abnormal_metrics = [
         "|".join(metric for metric, flag in zip(used, row, strict=False) if flag)
